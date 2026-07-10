@@ -144,7 +144,12 @@ const db = getDatabase(app);
     else { showToast("Not supported in cloud mode", false); throw new Error("Not supported"); }
     
     state = { ...state, ...partial };
-    update(ref(db, 'acState'), partial);
+    try {
+      await update(ref(db, 'acState'), partial);
+    } catch (e) {
+      console.error("Firebase update failed:", e);
+      throw e;
+    }
     return { power: state.power, mode: state.mode, temp: state.temp, fan: state.fan, timeValid: true };
   }
 
