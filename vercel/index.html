@@ -3,10 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<title>AC Control (Cloud Dashboard)</title>
+<meta name="theme-color" content="#0b0d12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>AC Control</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="toast" class="toast" role="alert" aria-live="assertive"></div>
 
 <!-- Login Overlay -->
 <div id="loginOverlay">
@@ -21,38 +25,54 @@
   <header class="topbar">
     <div class="brand">
       <h1>AC Control</h1>
-      <span id="connDot" class="conn-dot offline" title="Connection status"></span>
+      <span id="connDot" class="conn-dot" title="Connection status"></span>
     </div>
     <button id="signOutBtn" class="btn-primary" style="background:transparent;border-color:var(--border);color:var(--text)">Sign Out</button>
+    <nav class="tabbar" role="tablist">
+      <button class="tab" role="tab" data-tab="control" aria-selected="true">Control</button>
+      <button class="tab" role="tab" data-tab="automation" aria-selected="false">Automation</button>
+      <button class="tab" role="tab" data-tab="stats" aria-selected="false">Stats</button>
+      <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+    </nav>
   </header>
 
-  <section class="tab-panel" data-panel="control">
+  <div id="autoStatus" class="status-strip"></div>
+
+  <!-- ============ CONTROL ============ -->
+  <section id="tab-control" class="tab-panel" data-panel="control">
     <div class="grid">
-      <!-- Power & Temp -->
       <div class="card dial-card">
         <div class="row-between">
           <div class="col">
-            <span style="font-size:16px;font-weight:600">Power</span>
-            <span id="powerState" style="font-size:13px;color:var(--text-dim)">Off</span>
+            <span class="label-16">Power</span>
+            <span id="powerState" class="dim-13">Off</span>
           </div>
-          <button id="powerToggle" class="switch" role="switch" aria-checked="false">
+          <button id="powerToggle" class="switch" role="switch" aria-checked="false" aria-label="Toggle power">
             <span class="switch-knob"></span>
           </button>
         </div>
 
-        <div class="temp-controls" style="margin-top:20px;margin-bottom:20px">
-          <button id="tempDown">&minus;</button>
-          <div class="temp-readout"><span id="tempValue">24</span><span style="font-size:24px">&deg;C</span></div>
-          <button id="tempUp">+</button>
+        <div class="dial" id="tempDial" style="--size:240px;--ring:22px" role="slider" tabindex="0"
+             aria-label="Temperature" aria-valuemin="16" aria-valuemax="30" aria-valuenow="24">
+          <div class="dial-inner">
+            <span id="tempModeLabel" class="dim-12-upper">Cool</span>
+            <div class="dial-readout"><span id="tempValue">24</span><span class="dim-22">&deg;C</span></div>
+            <span class="faint-12">16&ndash;30 &middot; drag to set</span>
+          </div>
+          <div class="dial-thumb"></div>
+        </div>
+
+        <div class="row-gap">
+          <button id="tempDown" class="round-btn" aria-label="Decrease temperature">&minus;</button>
+          <button id="tempUp" class="round-btn" aria-label="Increase temperature">+</button>
         </div>
       </div>
 
       <div class="col-stack">
-        <!-- Mode -->
         <section class="card">
           <h2 class="card-title">Mode</h2>
           <div id="modeGrid" class="mode-grid">
-            <button class="mode-btn" data-mode="cool" aria-pressed="true">
+            <button class="mode-btn" data-mode="cool" aria-pressed="false">
               <svg viewBox="0 0 24 24"><path d="M12 2v20M4.5 6.5l15 11M19.5 6.5l-15 11" stroke-width="2" stroke-linecap="round"/></svg>
               <span>Cool</span>
             </button>
@@ -75,22 +95,136 @@
           </div>
         </section>
 
-        <!-- Fan -->
-        <section class="card">
-          <h2 class="card-title">Fan speed</h2>
-          <div id="fanGrid" class="chip-row">
-            <button class="chip" data-fan="auto" aria-pressed="true">Auto</button>
-            <button class="chip" data-fan="low" aria-pressed="false">Low</button>
-            <button class="chip" data-fan="medium" aria-pressed="false">Medium</button>
-            <button class="chip" data-fan="high" aria-pressed="false">High</button>
+        <section class="card fan-card">
+          <div class="dial" id="fanDial" style="--size:110px;--ring:14px" role="slider" tabindex="0"
+               aria-label="Fan speed" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0">
+            <div class="dial-inner"><span id="fanDialLabel" class="fan-dial-label">Auto</span></div>
+            <div class="dial-thumb"></div>
           </div>
+          <div class="fan-side">
+            <h2 class="card-title">Fan speed</h2>
+            <div id="fanGrid" class="chip-row">
+              <button class="chip" data-fan="auto" aria-pressed="false">Auto</button>
+              <button class="chip" data-fan="low" aria-pressed="false">Low</button>
+              <button class="chip" data-fan="medium" aria-pressed="false">Medium</button>
+              <button class="chip" data-fan="high" aria-pressed="false">High</button>
+            </div>
+            <span class="faint-12">Turn the dial or tap a step</span>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2 class="card-title">Presets</h2>
+          <div id="presetButtons" class="preset-grid"></div>
         </section>
       </div>
     </div>
   </section>
+
+  <!-- ============ AUTOMATION ============ -->
+  <section id="tab-automation" class="tab-panel" data-panel="automation" hidden>
+    <div class="grid">
+      <section class="card timer-card">
+        <h2 class="card-title" style="align-self:flex-start">Countdown timer</h2>
+        <div class="dial" id="timerDial" style="--size:200px;--ring:20px" role="slider" tabindex="0"
+             aria-label="Timer minutes" aria-valuemin="5" aria-valuemax="240" aria-valuenow="60">
+          <div class="dial-inner">
+            <div class="dial-readout"><span id="timerMin">60</span><span class="dim-16">min</span></div>
+            <span class="faint-12">5&ndash;240 &middot; drag to set</span>
+          </div>
+          <div class="dial-thumb"></div>
+        </div>
+        <div class="timer-controls">
+          <div class="segmented">
+            <button id="timerOffSeg" class="segment" aria-pressed="true">Turn OFF</button>
+            <button id="timerOnSeg" class="segment" aria-pressed="false">Turn ON</button>
+          </div>
+          <span id="timerOnOpts" class="timer-on-opts" style="display:none">
+            at
+            <span class="mini-stepper">
+              <button id="timerTempDown" type="button" aria-label="Decrease timer temperature">&minus;</button>
+              <span id="timerTempValue">24&deg;</span>
+              <button id="timerTempUp" type="button" aria-label="Increase timer temperature">+</button>
+            </span>
+          </span>
+          <button id="timerAdd" class="btn-primary">Start timer</button>
+        </div>
+        <div id="timerList" class="timer-list"></div>
+      </section>
+
+      <div class="col-stack">
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title">Weekly schedules</h2>
+            <button id="scheduleAdd" class="btn-ghost">+ Add</button>
+          </div>
+          <div id="scheduleList" class="row-list"></div>
+          <button id="scheduleSave" class="btn-primary" style="margin-top:14px">Save schedules</button>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title">Programs &amp; sleep modes</h2>
+            <button id="programAdd" class="btn-ghost">+ Add</button>
+          </div>
+          <div id="programList" class="row-list"></div>
+          <p class="faint-12" style="margin-top:12px">A program runs its steps in order. Any manual command cancels it.</p>
+          <button id="programSave" class="btn-primary" style="margin-top:10px">Save programs</button>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STATS ============ -->
+  <section id="tab-stats" class="tab-panel" data-panel="stats" hidden>
+    <div class="grid">
+      <section class="card">
+        <h2 class="card-title">Usage &amp; energy</h2>
+        <div id="statCards" class="stat-grid"></div>
+        <div class="filter-block">
+          <div class="filter-row"><span>Filter</span><span id="filterText">&ndash;</span></div>
+          <div class="filter-track"><div id="filterFill" class="filter-fill" style="width:0%"></div></div>
+          <button id="filterReset" class="btn-ghost" style="align-self:flex-start">Reset filter counter</button>
+        </div>
+      </section>
+      <section class="card">
+        <h2 class="card-title">Event log</h2>
+        <div id="logBox" class="log-list"></div>
+      </section>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="tab-settings" class="tab-panel" data-panel="settings" hidden>
+    <div class="grid">
+      <section class="card">
+        <h2 class="card-title">Behaviour</h2>
+        <div class="settings-rows">
+          <div class="settings-row">
+            <div class="col"><span class="label-16" style="font-size:14px;font-weight:500">Weekly schedules enabled</span><span class="hint">Run automations on schedule</span></div>
+            <button id="setAuto" class="switch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
+          </div>
+          <div class="settings-row">
+            <div class="col"><span class="label-16" style="font-size:14px;font-weight:500">Restore after power cut</span><span class="hint">Re-apply last state on boot</span></div>
+            <button id="setRestore" class="switch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
+          </div>
+        </div>
+      </section>
+      <section class="card">
+        <h2 class="card-title">Numbers</h2>
+        <div class="settings-rows">
+          <div class="number-row"><span>Manual hold (min)</span><input id="setHold" type="number" min="0" max="1440" class="in-num"></div>
+          <div class="number-row"><span>AC power (watts)</span><input id="setWatts" type="number" min="100" max="5000" class="in-num"></div>
+          <div class="number-row"><span>Tariff (&#8377;/kWh)</span><input id="setTariff" type="number" min="0" step="0.1" class="in-num"></div>
+          <div class="number-row"><span>Filter limit (hours)</span><input id="setFilter" type="number" min="10" max="2000" class="in-num"></div>
+          <div class="number-row"><span>Safety auto-off (hours, 0=off)</span><input id="setSafety" type="number" min="0" max="24" class="in-num"></div>
+        </div>
+        <button id="settingsSave" class="btn-primary" style="margin-top:14px">Save settings</button>
+      </section>
+    </div>
+  </section>
 </div>
 
-<!-- Load logic as ES Module -->
 <script type="module" src="script.js"></script>
 </body>
 </html>
