@@ -9,6 +9,7 @@
 #include "ConfigStore.h"
 #include "EventLog.h"
 #include "SinricManager.h"
+#include "FirebaseManager.h"
 #include "StatsManager.h"
 #include "TimeManager.h"
 #include "WebServerManager.h"
@@ -27,6 +28,7 @@ AcController acController(ac, eventLog, settings);
 AutomationEngine automation(acController, timeManager, eventLog, settings);
 StatsManager stats(acController, timeManager, eventLog, settings);
 SinricManager sinric(acController, eventLog);
+FirebaseManager firebase(acController, eventLog);
 WebServerManager webServer(acController, automation, stats, settings, timeManager, eventLog);
 
 void startMdns() {
@@ -63,10 +65,11 @@ void setup() {
   stats.begin();
 
   // External (manual/cloud/timer/safety) commands cancel a running program;
-  // every change is mirrored to Sinric so Alexa/Google stay in sync.
+  // every change is mirrored to Sinric and Firebase so clouds stay in sync.
   acController.addChangeCallback([](const ACState& s, CmdSource source) {
     automation.onExternalCommand(source);
     sinric.pushState(s, source);
+    firebase.pushState(s, source);
   });
 
   wifiManager.begin();
@@ -84,6 +87,7 @@ void loop() {
     startMdns();
     timeManager.onWifiConnected();
     sinric.begin();
+    firebase.begin();
   }
   wasConnected = nowConnected;
 
@@ -92,6 +96,7 @@ void loop() {
   automation.loop();
   stats.loop();
   sinric.loop();
+  firebase.loop();
   webServer.loop();
 
   delay(10);
