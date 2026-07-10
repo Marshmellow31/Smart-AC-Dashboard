@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
-import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
+import { getDatabase, ref, onValue, update, push } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCI4QK9dSxx1UD6399cQ-lRwDTZGMmzP9M",
@@ -16,6 +16,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
+
+// ---------------------------------------------------------------------------
+// Cloud transport. The ESP32 mirrors every REST payload to /state/* and
+// listens on /ctl (acState writes + a /ctl/cmd RPC queue), so this UI is a
+// full realtime peer of the LAN one: every tab re-renders the moment the
+// device (or another client) changes something.
 
 (() => {
   const MIN_TEMP = 16;
@@ -33,6 +39,7 @@ const db = getDatabase(app);
     heat: { label: "Heat", accent: "#ff9d4f" },
   };
   const OFF_ACCENT = "#3a4356";
+  const HEARTBEAT_STALE_SEC = 150; // device heartbeats every 60s
 
   const $ = (id) => document.getElementById(id);
   const el = {
@@ -56,49 +63,20 @@ const db = getDatabase(app);
     setHold: $("setHold"), setWatts: $("setWatts"), setTariff: $("setTariff"),
     setFilter: $("setFilter"), setSafety: $("setSafety"), settingsSave: $("settingsSave"),
   };
-  
+
   const loginOverlay = $("loginOverlay");
   const appShell = $("appShell");
   const googleSignInBtn = $("googleSignInBtn");
   const signOutBtn = $("signOutBtn");
-  
-  const provider = new GoogleAuthProvider();
-  googleSignInBtn.addEventListener("click", () => {
-    signInWithPopup(auth, provider).catch(error => alert("Login failed: " + error.message));
-  });
-  signOutBtn.addEventListener("click", () => signOut(auth));
-  
-  onAuthStateChanged(auth, (user) => {
-    if (user) {
-      if (user.email !== "1080patelharshil@gmail.com") {
-        signOut(auth);
-        alert("Unauthorized account. Only 1080patelharshil@gmail.com is allowed.");
-        return;
-      }
-      loginOverlay.style.display = "none";
-      appShell.style.display = "flex";
-      setConnected(true);
-      
-      const acRef = ref(db, 'acState');
-      onValue(acRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) renderStatus({ ...status, ...data, timeValid: true });
-      });
-    } else {
-      loginOverlay.style.display = "flex";
-      appShell.style.display = "none";
-      setConnected(false);
-    }
-  });
-
-  el.scheduleSave.style.display = "none";
-  el.programSave.style.display = "none";
 
   let state = { power: false, mode: "cool", temp: 24, fan: "auto" };
   let status = {};
+  let statusCache = {};
   let settingsData = { acWatts: 1350, tariffPerKwh: 7.5 };
   let schedulesData = [];
   let programsData = [];
+  let timersData = [];
+  let statsData = null;
   let scheduleDirty = false, programDirty = false;
   let toastTimer = null;
   let tempDraft = state.temp;
@@ -107,11 +85,16 @@ const db = getDatabase(app);
   let timerOn = false;
   let timerTempDraft = 24;
 
+  let rtdbConnected = false;
+  let lastHeartbeat = 0;
+  let unsubs = [];
+
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
       (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmtEpoch = (e) => e ? new Date(e * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "";
   const fmtDur = (sec) => sec >= 3600 ? `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m` : `${Math.ceil(sec / 60)}m`;
   const money = (v) => "₹" + (v || 0).toFixed(1);
+  const nowSec = () => Math.floor(Date.now() / 1000);
 
   function showToast(message, ok) {
     el.toast.textContent = message;
@@ -121,36 +104,47 @@ const db = getDatabase(app);
     toastTimer = setTimeout(() => el.toast.classList.remove("visible"), 3200);
   }
 
-  function setConnected(online) {
+  const deviceOnline = () => rtdbConnected && (nowSec() - lastHeartbeat) < HEARTBEAT_STALE_SEC;
+
+  function updateConn() {
+    const online = deviceOnline();
     el.connDot.classList.toggle("online", online);
     el.connDot.classList.toggle("offline", !online);
+    el.connDot.title = online ? "Device online" : "Device offline";
   }
 
   function setPending(elements, pending) {
     elements.forEach((e) => e && e.classList.toggle("is-pending", pending));
   }
 
-  async function apiGet(path) {
-    if (path === "/api/status") return { power: state.power, mode: state.mode, temp: state.temp, fan: state.fan, timeValid: true };
-    return {};
+  const mergedStatus = () => ({ timeValid: false, ...statusCache, ...state });
+
+  // Quick controls write the canonical state node; everything else goes
+  // through the /ctl/cmd RPC queue the firmware executes and deletes.
+  // Commands sitting in the queue when the device reconnects are dropped by
+  // design (stale commands must not re-blast the AC), hence the offline warn.
+  function warnIfDeviceOffline() {
+    if (!deviceOnline()) showToast("Device offline — the command may not apply", false);
+  }
+
+  async function setAcState(partial) {
+    warnIfDeviceOffline();
+    state = { ...state, ...partial };
+    await update(ref(db, "ctl/acState"), partial);
+    return mergedStatus();
+  }
+
+  async function sendCmd(cmd) {
+    warnIfDeviceOffline();
+    await push(ref(db, "ctl/cmd"), { ts: nowSec(), ...cmd });
   }
 
   async function apiPost(path, body) {
-    let partial = {};
-    if (path === "/api/power") partial = { power: body.on };
-    else if (path === "/api/temp") partial = { temp: body.value };
-    else if (path === "/api/mode") partial = { mode: body.mode, power: true };
-    else if (path === "/api/fan") partial = { fan: body.speed };
-    else { showToast("Not supported in cloud mode", false); throw new Error("Not supported"); }
-    
-    state = { ...state, ...partial };
-    try {
-      await update(ref(db, 'acState'), partial);
-    } catch (e) {
-      console.error("Firebase update failed:", e);
-      throw e;
-    }
-    return { power: state.power, mode: state.mode, temp: state.temp, fan: state.fan, timeValid: true };
+    if (path === "/api/power") return setAcState({ power: body.on });
+    if (path === "/api/temp") return setAcState({ temp: body.value });
+    if (path === "/api/mode") return setAcState({ mode: body.mode, power: true });
+    if (path === "/api/fan") return setAcState({ fan: body.speed });
+    throw new Error("Unknown control path " + path);
   }
 
   function applyAccent(mode, power) {
@@ -228,7 +222,7 @@ const db = getDatabase(app);
   });
 
   // ------------------------------------------------------------------
-  // Main controls (behaviour unchanged, re-pointed at new DOM)
+  // Main controls
 
   function render(s) {
     state = { power: s.power, mode: s.mode, temp: s.temp, fan: s.fan };
@@ -263,11 +257,9 @@ const db = getDatabase(app);
     try {
       const confirmed = await apiPost(path, body);
       renderStatus(confirmed);
-      setConnected(true);
     } catch (err) {
       render(previous);
-      setConnected(false);
-      showToast(err.message || "ESP32 unreachable");
+      showToast(err.message || "Update failed");
     } finally {
       setPending(pendingEls, false);
     }
@@ -301,7 +293,7 @@ const db = getDatabase(app);
   });
 
   // ------------------------------------------------------------------
-  // Automation status strip + status polling
+  // Automation status strip
 
   function renderStatus(st) {
     const prevProgId = status.program && status.program.active ? status.program.id : null;
@@ -335,39 +327,30 @@ const db = getDatabase(app);
 
     const clearBtn = $("clearHold");
     if (clearBtn) clearBtn.onclick = async () => {
-      try { renderStatus(await apiPost("/api/override/clear")); } catch (e) { showToast(e.message); }
+      try {
+        await sendCmd({ type: "clearOverride" });
+        showToast("Automations resumed", true);
+      } catch (e) { showToast(e.message); }
     };
 
     const curProgId = st.program && st.program.active ? st.program.id : null;
     if (curProgId !== prevProgId) refreshProgramRunStates();
   }
 
-  async function refreshStatus() {
-    try {
-      renderStatus(await apiGet("/api/status"));
-      setConnected(true);
-    } catch (_) {
-      setConnected(false);
-    }
-  }
-
   // ------------------------------------------------------------------
   // Presets
 
-  async function loadPresets() {
-    try {
-      const data = await apiGet("/api/presets");
-      el.presetButtons.innerHTML = data.presets.map((p) =>
-          `<button type="button" class="preset-btn" data-preset="${esc(p.name)}"><span>${esc(p.name)}</span>` +
-          `<span>${p.action.power === false ? "turn off" : (p.action.temp || "") + "° " + (p.action.mode || "")}</span></button>`).join("");
-    } catch (_) {}
+  function renderPresets(presets) {
+    el.presetButtons.innerHTML = presets.map((p) =>
+        `<button type="button" class="preset-btn" data-preset="${esc(p.name)}"><span>${esc(p.name)}</span>` +
+        `<span>${p.action.power === false ? "turn off" : (p.action.temp || "") + "° " + (p.action.mode || "")}</span></button>`).join("");
   }
 
   el.presetButtons.addEventListener("click", async (evt) => {
     const btn = evt.target.closest("[data-preset]");
     if (!btn) return;
     try {
-      renderStatus(await apiPost("/api/presets/apply", { name: btn.dataset.preset }));
+      await sendCmd({ type: "applyPreset", name: btn.dataset.preset });
       showToast(`Preset "${btn.dataset.preset}" applied`, true);
     } catch (e) { showToast(e.message); }
   });
@@ -387,11 +370,13 @@ const db = getDatabase(app);
   el.timerTempDown.addEventListener("click", () => { timerTempDraft = Math.max(MIN_TEMP, timerTempDraft - 1); paintTimerTemp(); });
   el.timerTempUp.addEventListener("click", () => { timerTempDraft = Math.min(MAX_TEMP, timerTempDraft + 1); paintTimerTemp(); });
 
-  function renderTimers(data) {
-    const timers = data.timers || [];
-    el.timerList.innerHTML = timers.map((t) => {
+  function renderTimers() {
+    // remainingSec is derived here — the mirror only carries fireAt so it
+    // doesn't have to be rewritten every second.
+    el.timerList.innerHTML = timersData.map((t) => {
+      const remaining = Math.max(0, (t.fireAt || 0) - nowSec());
       const what = t.action.power === false ? "Turn OFF" : `Turn ON ${t.action.temp || ""}°`;
-      return `<div class="timer-row"><span>${what} in <b>${fmtDur(t.remainingSec)}</b> · ${fmtEpoch(t.fireAt)}</span>` +
+      return `<div class="timer-row"><span>${what} in <b>${fmtDur(remaining)}</b> · ${fmtEpoch(t.fireAt)}</span>` +
              `<button type="button" class="btn-text-danger" data-cancel="${t.id}">Cancel</button></div>`;
     }).join("") || `<div class="faint-12">No timers set.</div>`;
   }
@@ -399,22 +384,20 @@ const db = getDatabase(app);
   el.timerList.addEventListener("click", async (evt) => {
     const btn = evt.target.closest("[data-cancel]");
     if (!btn) return;
-    try { renderTimers(await apiPost("/api/timers/cancel", { id: Number(btn.dataset.cancel) })); }
-    catch (e) { showToast(e.message); }
+    try {
+      await sendCmd({ type: "cancelTimer", id: Number(btn.dataset.cancel) });
+      showToast("Timer cancelled", true);
+    } catch (e) { showToast(e.message); }
   });
 
   el.timerAdd.addEventListener("click", async () => {
     const minutes = timerMinDraft;
     const action = timerOn ? { power: true, temp: timerTempDraft, mode: "cool" } : { power: false };
     try {
-      renderTimers(await apiPost("/api/timers", { minutes, action }));
+      await sendCmd({ type: "addTimer", minutes, action });
       showToast("Timer set", true);
     } catch (e) { showToast(e.message); }
   });
-
-  async function loadTimers() {
-    try { renderTimers(await apiGet("/api/timers")); } catch (_) {}
-  }
 
   // ------------------------------------------------------------------
   // Weekly schedules editor
@@ -446,11 +429,12 @@ const db = getDatabase(app);
   function renderSchedules() {
     el.scheduleList.innerHTML = schedulesData.map((s, i) => {
       const off = s.action.power === false;
+      const days = s.days || [];
       return `<div class="row-card" data-idx="${i}">
         <div class="row-summary">
           <button type="button" class="row-main" data-toggle>
             <span class="row-name">${esc(s.name)}</span>
-            <span class="row-desc">${esc(daysDesc(s.days))} · ${esc(actionDesc(s.action))}</span>
+            <span class="row-desc">${esc(daysDesc(days))} · ${esc(actionDesc(s.action))}</span>
           </button>
           <span class="row-time">${esc(s.time)}</span>
           <button type="button" class="switch small s-enabled-switch" role="switch" aria-checked="${s.enabled ? "true" : "false"}"><span class="switch-knob"></span></button>
@@ -461,7 +445,7 @@ const db = getDatabase(app);
             <input type="time" class="s-time in-sel" value="${esc(s.time)}">
             <button type="button" class="btn-text-danger s-del">Delete</button>
           </div>
-          <div class="day-chips">${dayChips(s.days)}</div>
+          <div class="day-chips">${dayChips(days)}</div>
           <div class="field-row">
             <select class="s-power in-sel"><option value="on" ${off ? "" : "selected"}>Turn ON</option><option value="off" ${off ? "selected" : ""}>Turn OFF</option></select>
             <span class="s-onopts field-row" ${off ? 'style="display:none"' : ""}>
@@ -539,22 +523,14 @@ const db = getDatabase(app);
     const bad = slots.find((s) => s.days.length === 0);
     if (bad) { showToast(`Slot "${bad.name}" needs at least one day`); return; }
     try {
-      const data = await apiPost("/api/schedules", { slots });
-      schedulesData = data.slots;
+      await sendCmd({ type: "schedules", slots });
+      schedulesData = slots;
       renderSchedules();
       scheduleDirty = false;
       el.scheduleSave.style.display = "none";
       showToast("Schedules saved", true);
-      refreshStatus();
     } catch (e) { showToast(e.message); }
   });
-
-  async function loadSchedules() {
-    try {
-      schedulesData = (await apiGet("/api/schedules")).slots || [];
-      renderSchedules();
-    } catch (_) {}
-  }
 
   // ------------------------------------------------------------------
   // Programs editor + start/stop
@@ -580,7 +556,7 @@ const db = getDatabase(app);
 
   function renderPrograms() {
     el.programList.innerHTML = programsData.map((p, i) => {
-      const steps = p.steps.map((s, si) => `
+      const steps = (p.steps || []).map((s, si) => `
         <div class="field-row step-row" data-step="${si}">
           <select class="p-on in-sel"><option value="on" ${s.on ? "selected" : ""}>ON</option><option value="off" ${s.on ? "" : "selected"}>OFF</option></select>
           <input type="number" class="p-min in-num" min="1" max="1440" value="${s.minutes}" title="minutes"> min
@@ -595,7 +571,7 @@ const db = getDatabase(app);
         <div class="row-summary">
           <button type="button" class="row-main" data-toggle>
             <span class="row-name">${esc(p.name)}</span>
-            <span class="row-desc">${esc(stepsSummary(p))}</span>
+            <span class="row-desc">${esc(stepsSummary({ ...p, steps: p.steps || [] }))}</span>
           </button>
           <span class="row-action" data-pid="${esc(p.id)}">${programActionHtml(p)}</span>
         </div>
@@ -639,15 +615,17 @@ const db = getDatabase(app);
     if (startBtn) {
       const until = startBtn.closest(".row-summary").querySelector(".p-until").value || "";
       try {
-        renderStatus(await apiPost("/api/program/start", { id: startBtn.dataset.start, endTime: until }));
+        await sendCmd({ type: "startProgram", id: startBtn.dataset.start, endTime: until });
         showToast("Program started", true);
       } catch (e) { showToast(e.message); }
       return;
     }
     const stopBtn = evt.target.closest("[data-stop]");
     if (stopBtn) {
-      try { renderStatus(await apiPost("/api/program/stop")); showToast("Program stopped", true); }
-      catch (e) { showToast(e.message); }
+      try {
+        await sendCmd({ type: "stopProgram" });
+        showToast("Program stopped", true);
+      } catch (e) { showToast(e.message); }
       return;
     }
     const toggleBtn = evt.target.closest("[data-toggle]");
@@ -705,8 +683,8 @@ const db = getDatabase(app);
     const bad = programs.find((p) => p.steps.length === 0);
     if (bad) { showToast(`Program "${bad.name}" needs at least one step`); return; }
     try {
-      const data = await apiPost("/api/programs", { programs });
-      programsData = data.programs;
+      await sendCmd({ type: "programs", programs });
+      programsData = programs;
       renderPrograms();
       programDirty = false;
       el.programSave.style.display = "none";
@@ -714,39 +692,33 @@ const db = getDatabase(app);
     } catch (e) { showToast(e.message); }
   });
 
-  async function loadPrograms() {
-    try {
-      programsData = (await apiGet("/api/programs")).programs || [];
-      renderPrograms();
-    } catch (_) {}
-  }
-
   // ------------------------------------------------------------------
   // Stats
 
-  async function loadStats() {
-    try {
-      const s = await apiGet("/api/stats");
-      const estPerDay = (settingsData.acWatts || 0) / 1000 * 24 * (settingsData.tariffPerKwh || 0);
-      const tiles = [
-        { label: "Today on-time", value: fmtDur(s.today.onMinutes * 60), sub: `${s.today.kwh.toFixed(2)} kWh · ${money(s.today.cost)}` },
-        { label: "This month", value: fmtDur(s.month.onMinutes * 60), sub: `${s.month.kwh.toFixed(1)} kWh · ${money(s.month.cost)}` },
-        { label: "Running now", value: s.continuousOnMinutes > 0 ? fmtDur(s.continuousOnMinutes * 60) : "–", sub: s.continuousOnMinutes > 0 ? "continuous" : "AC is off" },
-        { label: "Est. cost/day", value: money(estPerDay), sub: `at ₹${(settingsData.tariffPerKwh || 0).toFixed(1)}/kWh` },
-      ];
-      el.statCards.innerHTML = tiles.map((t) =>
-          `<div class="stat-tile"><div class="stat-label">${t.label}</div><div class="stat-value">${t.value}</div><div class="stat-sub">${t.sub}</div></div>`).join("");
+  function renderStats() {
+    const s = statsData;
+    if (!s || !s.today) return;
+    const estPerDay = (settingsData.acWatts || 0) / 1000 * 24 * (settingsData.tariffPerKwh || 0);
+    const tiles = [
+      { label: "Today on-time", value: fmtDur(s.today.onMinutes * 60), sub: `${s.today.kwh.toFixed(2)} kWh · ${money(s.today.cost)}` },
+      { label: "This month", value: fmtDur(s.month.onMinutes * 60), sub: `${s.month.kwh.toFixed(1)} kWh · ${money(s.month.cost)}` },
+      { label: "Running now", value: s.continuousOnMinutes > 0 ? fmtDur(s.continuousOnMinutes * 60) : "–", sub: s.continuousOnMinutes > 0 ? "continuous" : "AC is off" },
+      { label: "Est. cost/day", value: money(estPerDay), sub: `at ₹${(settingsData.tariffPerKwh || 0).toFixed(1)}/kWh` },
+    ];
+    el.statCards.innerHTML = tiles.map((t) =>
+        `<div class="stat-tile"><div class="stat-label">${t.label}</div><div class="stat-value">${t.value}</div><div class="stat-sub">${t.sub}</div></div>`).join("");
 
-      el.filterText.textContent = `${s.filter.hours}h / ${s.filter.limitHours}h`;
-      const pct = Math.max(0, Math.min(100, (s.filter.hours / Math.max(1, s.filter.limitHours)) * 100));
-      el.filterFill.style.width = pct + "%";
-      el.filterFill.classList.toggle("needs-cleaning", !!s.filter.needsCleaning);
-    } catch (_) {}
+    el.filterText.textContent = `${s.filter.hours}h / ${s.filter.limitHours}h`;
+    const pct = Math.max(0, Math.min(100, (s.filter.hours / Math.max(1, s.filter.limitHours)) * 100));
+    el.filterFill.style.width = pct + "%";
+    el.filterFill.classList.toggle("needs-cleaning", !!s.filter.needsCleaning);
   }
 
   el.filterReset.addEventListener("click", async () => {
-    try { await apiPost("/api/filter/reset"); showToast("Filter counter reset", true); loadStats(); }
-    catch (e) { showToast(e.message); }
+    try {
+      await sendCmd({ type: "filterReset" });
+      showToast("Filter counter reset", true);
+    } catch (e) { showToast(e.message); }
   });
 
   // ------------------------------------------------------------------
@@ -759,23 +731,20 @@ const db = getDatabase(app);
     el.setRestore.setAttribute("aria-checked", String(el.setRestore.getAttribute("aria-checked") !== "true"));
   });
 
-  async function loadSettings() {
-    try {
-      const s = await apiGet("/api/settings");
-      settingsData = s;
-      el.setAuto.setAttribute("aria-checked", String(!!s.automationEnabled));
-      el.setRestore.setAttribute("aria-checked", String(!!s.restoreOnBoot));
-      el.setHold.value = s.holdMinutes;
-      el.setWatts.value = s.acWatts;
-      el.setTariff.value = s.tariffPerKwh;
-      el.setFilter.value = s.filterLimitHours;
-      el.setSafety.value = s.maxContinuousHours;
-    } catch (_) {}
+  function renderSettings() {
+    const s = settingsData;
+    el.setAuto.setAttribute("aria-checked", String(!!s.automationEnabled));
+    el.setRestore.setAttribute("aria-checked", String(!!s.restoreOnBoot));
+    el.setHold.value = s.holdMinutes;
+    el.setWatts.value = s.acWatts;
+    el.setTariff.value = s.tariffPerKwh;
+    el.setFilter.value = s.filterLimitHours;
+    el.setSafety.value = s.maxContinuousHours;
   }
 
   el.settingsSave.addEventListener("click", async () => {
     try {
-      const s = await apiPost("/api/settings", {
+      await sendCmd({ type: "settings", settings: {
         holdMinutes: Number(el.setHold.value),
         automationEnabled: el.setAuto.getAttribute("aria-checked") === "true",
         restoreOnBoot: el.setRestore.getAttribute("aria-checked") === "true",
@@ -783,24 +752,18 @@ const db = getDatabase(app);
         tariffPerKwh: Number(el.setTariff.value),
         filterLimitHours: Number(el.setFilter.value),
         maxContinuousHours: Number(el.setSafety.value),
-      });
-      settingsData = s;
+      } });
       showToast("Settings saved", true);
-      refreshStatus();
-      loadStats();
     } catch (e) { showToast(e.message); }
   });
 
   // ------------------------------------------------------------------
   // Event log
 
-  async function loadLog() {
-    try {
-      const data = await apiGet("/api/log");
-      el.logBox.innerHTML = (data.events || []).map((e) =>
-          `<div class="log-row"><span class="log-time">${fmtEpoch(e.time)}</span><span class="log-src">[${esc(e.source)}]</span><span class="log-msg">${esc(e.msg)}</span></div>`).join("") ||
-          `<div class="faint-12">Nothing yet.</div>`;
-    } catch (_) {}
+  function renderLog(events) {
+    el.logBox.innerHTML = events.map((e) =>
+        `<div class="log-row"><span class="log-time">${fmtEpoch(e.time)}</span><span class="log-src">[${esc(e.source)}]</span><span class="log-msg">${esc(e.msg)}</span></div>`).join("") ||
+        `<div class="faint-12">Nothing yet.</div>`;
   }
 
   // ------------------------------------------------------------------
@@ -817,20 +780,86 @@ const db = getDatabase(app);
   setTab(location.hash.slice(1) || "control", false);
 
   // ------------------------------------------------------------------
-  // Boot + polling
+  // Realtime subscriptions — the ESP32 mirrors everything to /state/*, so
+  // there is no polling: each node re-renders its tab the moment it changes.
 
-  async function boot() {
-    await refreshStatus();
-    loadPresets();
-    loadTimers();
-    loadSchedules();
-    loadPrograms();
-    await loadSettings();
-    loadStats();
-    loadLog();
-    paintTimerSegment();
-    paintTimerTemp();
+  function startSync() {
+    const sub = (path, fn) => unsubs.push(onValue(ref(db, path), (snap) => fn(snap.val())));
+
+    sub("ctl/acState", (v) => {
+      if (!v) return;
+      state = { ...state, ...v };
+      renderStatus(mergedStatus());
+    });
+    sub("state/status", (v) => {
+      if (!v) return;
+      statusCache = v;
+      renderStatus(mergedStatus());
+    });
+    sub("state/settings", (v) => {
+      if (!v) return;
+      settingsData = v;
+      renderSettings();
+      renderStats();
+    });
+    sub("state/schedules", (v) => {
+      // Never clobber unsaved local edits with a remote refresh.
+      if (scheduleDirty) return;
+      schedulesData = (v && v.slots) || [];
+      renderSchedules();
+    });
+    sub("state/programs", (v) => {
+      if (programDirty) return;
+      programsData = (v && v.programs) || [];
+      renderPrograms();
+    });
+    sub("state/presets", (v) => renderPresets((v && v.presets) || []));
+    sub("state/timers", (v) => {
+      timersData = (v && v.timers) || [];
+      renderTimers();
+    });
+    sub("state/stats", (v) => { statsData = v; renderStats(); });
+    sub("state/log", (v) => renderLog((v && v.events) || []));
+    sub("state/heartbeat", (v) => { lastHeartbeat = v || 0; updateConn(); });
+    sub(".info/connected", (v) => { rtdbConnected = !!v; updateConn(); });
   }
 
-  boot();
+  function stopSync() {
+    unsubs.forEach((u) => u());
+    unsubs = [];
+  }
+
+  // Countdown labels and the online dot decay without server events.
+  setInterval(() => { renderTimers(); updateConn(); }, 30000);
+
+  // ------------------------------------------------------------------
+  // Auth gate
+
+  const provider = new GoogleAuthProvider();
+  googleSignInBtn.addEventListener("click", () => {
+    signInWithPopup(auth, provider).catch(error => alert("Login failed: " + error.message));
+  });
+  signOutBtn.addEventListener("click", () => signOut(auth));
+
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      if (user.email !== "1080patelharshil@gmail.com") {
+        signOut(auth);
+        alert("Unauthorized account. Only 1080patelharshil@gmail.com is allowed.");
+        return;
+      }
+      loginOverlay.style.display = "none";
+      appShell.style.display = "flex";
+      startSync();
+    } else {
+      stopSync();
+      loginOverlay.style.display = "flex";
+      appShell.style.display = "none";
+      rtdbConnected = false;
+      updateConn();
+    }
+  });
+
+  paintTimerSegment();
+  paintTimerTemp();
 })();

@@ -28,8 +28,8 @@ AcController acController(ac, eventLog, settings);
 AutomationEngine automation(acController, timeManager, eventLog, settings);
 StatsManager stats(acController, timeManager, eventLog, settings);
 SinricManager sinric(acController, eventLog);
-FirebaseManager firebase(acController, eventLog);
 WebServerManager webServer(acController, automation, stats, settings, timeManager, eventLog);
+FirebaseManager firebase(acController, automation, stats, webServer, settings, eventLog);
 
 void startMdns() {
   MDNS.end();

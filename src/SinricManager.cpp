@@ -64,7 +64,7 @@ bool onFanRangeValue(const String&, int& value) {
     case 3: cmd.fan = FanSpeed::FAN_HIGH; break;
     default: return false;
   }
-  g_rangeController->apply(cmd, CmdSource::CLOUD, "Sinric fan");
+  g_rangeController->apply(cmd, CmdSource::SINRIC, "Sinric fan");
   return true;
 }
 
@@ -89,7 +89,7 @@ void SinricManager::begin() {
     AcCommand cmd;
     cmd.hasPower = true;
     cmd.power = state;
-    controller_.apply(cmd, CmdSource::CLOUD, "Sinric power");
+    controller_.apply(cmd, CmdSource::SINRIC, "Sinric power");
     return true;
   });
 
@@ -98,7 +98,7 @@ void SinricManager::begin() {
     AcCommand cmd;
     cmd.hasTemp = true;
     cmd.temp = static_cast<uint8_t>(t);
-    controller_.apply(cmd, CmdSource::CLOUD, "Sinric temperature");
+    controller_.apply(cmd, CmdSource::SINRIC, "Sinric temperature");
     temp = static_cast<float>(t);
     return true;
   });
@@ -109,7 +109,7 @@ void SinricManager::begin() {
     AcCommand cmd;
     cmd.hasTemp = true;
     cmd.temp = static_cast<uint8_t>(t);
-    controller_.apply(cmd, CmdSource::CLOUD, "Sinric temperature adjust");
+    controller_.apply(cmd, CmdSource::SINRIC, "Sinric temperature adjust");
     delta = static_cast<float>(t);  // callback returns the absolute value
     return true;
   });
@@ -122,7 +122,7 @@ void SinricManager::begin() {
     cmd.mode = m;
     cmd.hasPower = true;  // Alexa mode changes imply the unit should run
     cmd.power = true;
-    controller_.apply(cmd, CmdSource::CLOUD, "Sinric mode");
+    controller_.apply(cmd, CmdSource::SINRIC, "Sinric mode");
     return true;
   });
 
@@ -145,8 +145,9 @@ void SinricManager::loop() {
 }
 
 void SinricManager::pushState(const ACState& s, CmdSource source) {
-  // Skip the echo of commands that came from the cloud in the first place.
-  if (!enabled_ || source == CmdSource::CLOUD) return;
+  // Skip only the echo of our own commands — changes from Firebase (CLOUD)
+  // must still be mirrored here so Alexa/Google stay in sync.
+  if (!enabled_ || source == CmdSource::SINRIC) return;
   if (!SinricPro.isConnected()) return;
 
   SinricProWindowAC& acUnit = SinricPro[SINRIC_AC_DEVICE_ID];

@@ -30,6 +30,14 @@ class WebServerManager {
   void begin();
   void loop();  // deferred persistence of settings/presets
 
+  // Shared with FirebaseManager so the cloud mirror serves the exact same
+  // payloads as the REST API.
+  void statusJson(JsonDocument& doc) const;
+  void presetsJson(JsonDocument& doc) const { presetsToJson(doc); }
+  bool setPresetsJson(JsonObjectConst root, String& err);
+  bool applyPreset(const String& name, CmdSource source, String& err);
+  void requestSettingsSave() { settingsDirty_ = true; }
+
  private:
   struct Preset {
     char name[24];

@@ -11,6 +11,8 @@ void begin() {
 }
 
 bool load(const char* path, JsonDocument& doc) {
+  // exists() first: open() on a missing path logs a VFS error at boot.
+  if (!LittleFS.exists(path)) return false;
   File f = LittleFS.open(path, "r");
   if (!f) return false;
   DeserializationError err = deserializeJson(doc, f);
