@@ -1,0 +1,6 @@
+{
+  "rules": {
+    ".read": "auth != null && (auth.token.email == '1080patelharshil@gmail.com' || auth.token.email == 'esp32@ac-controller.local')",
+    ".write": "auth != null && (auth.token.email == '1080patelharshil@gmail.com' || auth.token.email == 'esp32@ac-controller.local')"
+  }
+}

@@ -70,6 +70,11 @@ const db = getDatabase(app);
   
   onAuthStateChanged(auth, (user) => {
     if (user) {
+      if (user.email !== "1080patelharshil@gmail.com") {
+        signOut(auth);
+        alert("Unauthorized account. Only 1080patelharshil@gmail.com is allowed.");
+        return;
+      }
       loginOverlay.style.display = "none";
       appShell.style.display = "flex";
       setConnected(true);
