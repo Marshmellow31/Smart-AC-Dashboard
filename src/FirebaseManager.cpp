@@ -50,6 +50,10 @@ void FirebaseManager::pushState(const ACState& state, CmdSource source) {
     if (String(FIREBASE_API_KEY) == "YOUR_FIREBASE_API_KEY") return;
     if (!Firebase.ready()) return;
     
+    // Do not reflect Cloud commands back to Firebase if they originated from there
+    if (source == CmdSource::CLOUD) return;
+
+    
     FirebaseJson json;
     json.set("power", state.power);
     json.set("temp", state.temp);
