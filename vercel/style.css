@@ -1,0 +1,89 @@
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --bg: #0b0d12;
+  --surface: #12151d;
+  --surface-2: #1a1e29;
+  --border: #242938;
+  --text: #f2f4f8;
+  --text-dim: #8991a3;
+  --text-faint: #596273;
+  --danger: #ff5f6d;
+  --ok: #3ddc84;
+  --accent: #4fb0ff;
+  --accent-dim: rgba(79, 176, 255, .13);
+  --radius: 20px;
+  --radius-sm: 12px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+body { min-height: 100dvh; display: flex; justify-content: center; }
+input, select, button { font-family: inherit; color-scheme: dark; }
+
+.shell {
+  width: 100%;
+  max-width: 1060px;
+  padding: calc(20px + var(--safe-top)) 16px calc(40px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+#loginOverlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: var(--bg); z-index: 1000;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.login-card {
+  background: var(--surface); padding: 40px; border-radius: var(--radius);
+  border: 1px solid var(--border); text-align: center; display: flex; flex-direction: column; gap: 20px;
+}
+
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 2px 2px 0; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand h1 { font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+.conn-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-faint); }
+.conn-dot.online { background: var(--ok); }
+.conn-dot.offline { background: var(--danger); }
+
+.tabbar { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 4px; overflow-x: auto; }
+.tab { border: none; background: none; color: var(--text-dim); font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 9px; cursor: pointer; }
+.tab[aria-selected="true"] { background: #242938; color: var(--text); }
+.tab-panel[hidden] { display: none; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; align-items: start; }
+.col-stack { display: flex; flex-direction: column; gap: 18px; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+.card-title { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 14px; }
+.row-between { width: 100%; display: flex; align-items: center; justify-content: space-between; }
+.col { display: flex; flex-direction: column; gap: 2px; }
+
+.switch { position: relative; width: 52px; height: 30px; border-radius: 999px; border: none; background: var(--surface-2); cursor: pointer; flex-shrink: 0; transition: background .2s ease; }
+.switch-knob { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .2s; }
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"] .switch-knob { transform: translateX(22px); }
+
+.mode-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.mode-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 4px; border-radius: 12px; cursor: pointer; font-size: 12px; font-weight: 600; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim); }
+.mode-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; }
+.mode-btn[aria-pressed="true"] { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
+.btn-primary { padding: 9px 18px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent-dim); color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; }
+
+/* Dial simplifications */
+.dial-card { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.temp-controls { display: flex; align-items: center; justify-content: space-between; width: 100%; font-size: 24px; font-weight: bold; }
+.temp-controls button { width: 50px; height: 50px; border-radius: 25px; border: 1px solid var(--border); background: var(--surface-2); color: white; cursor: pointer; font-size: 24px; }
+.temp-readout { font-size: 48px; font-weight: bold; }
+
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 10px 12px; border-radius: 9px; cursor: pointer; font-size: 12px; font-weight: 600; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim); }
+.chip[aria-pressed="true"] { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }

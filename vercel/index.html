@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>AC Control (Cloud Dashboard)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Login Overlay -->
+<div id="loginOverlay">
+  <div class="login-card">
+    <h1>Cloud AC Controller</h1>
+    <p style="color:var(--text-dim)">Please sign in to access your dashboard.</p>
+    <button id="googleSignInBtn" class="btn-primary">Sign in with Google</button>
+  </div>
+</div>
+
+<div class="shell" id="appShell" style="display:none">
+  <header class="topbar">
+    <div class="brand">
+      <h1>AC Control</h1>
+      <span id="connDot" class="conn-dot offline" title="Connection status"></span>
+    </div>
+    <button id="signOutBtn" class="btn-primary" style="background:transparent;border-color:var(--border);color:var(--text)">Sign Out</button>
+  </header>
+
+  <section class="tab-panel" data-panel="control">
+    <div class="grid">
+      <!-- Power & Temp -->
+      <div class="card dial-card">
+        <div class="row-between">
+          <div class="col">
+            <span style="font-size:16px;font-weight:600">Power</span>
+            <span id="powerState" style="font-size:13px;color:var(--text-dim)">Off</span>
+          </div>
+          <button id="powerToggle" class="switch" role="switch" aria-checked="false">
+            <span class="switch-knob"></span>
+          </button>
+        </div>
+
+        <div class="temp-controls" style="margin-top:20px;margin-bottom:20px">
+          <button id="tempDown">&minus;</button>
+          <div class="temp-readout"><span id="tempValue">24</span><span style="font-size:24px">&deg;C</span></div>
+          <button id="tempUp">+</button>
+        </div>
+      </div>
+
+      <div class="col-stack">
+        <!-- Mode -->
+        <section class="card">
+          <h2 class="card-title">Mode</h2>
+          <div id="modeGrid" class="mode-grid">
+            <button class="mode-btn" data-mode="cool" aria-pressed="true">
+              <svg viewBox="0 0 24 24"><path d="M12 2v20M4.5 6.5l15 11M19.5 6.5l-15 11" stroke-width="2" stroke-linecap="round"/></svg>
+              <span>Cool</span>
+            </button>
+            <button class="mode-btn" data-mode="dry" aria-pressed="false">
+              <svg viewBox="0 0 24 24"><path d="M12 2c4 5 7 8.5 7 12.5A7 7 0 015 14.5C5 10.5 8 7 12 2z" stroke-width="2" stroke-linejoin="round"/></svg>
+              <span>Dry</span>
+            </button>
+            <button class="mode-btn" data-mode="fan" aria-pressed="false">
+              <svg viewBox="0 0 24 24"><path d="M12 12a3 3 0 100-6c0 2 .5 4.5 2.5 6M12 12a3 3 0 010 6c0-2-.5-4.5-2.5-6M12 12a3 3 0 00-6 0c2 0 4.5.5 6 2.5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>Fan</span>
+            </button>
+            <button class="mode-btn" data-mode="auto" aria-pressed="false">
+              <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0114-5.3M20 12a8 8 0 01-14 5.3M15 4.5l3 2.2-1 3.5M9 19.5l-3-2.2 1-3.5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>Auto</span>
+            </button>
+            <button class="mode-btn" data-mode="heat" aria-pressed="false">
+              <svg viewBox="0 0 24 24"><path d="M12 2s5 5.5 5 10a5 5 0 01-10 0c0-1.5.8-2.5 1.5-3.5.2 1 .8 1.5 1.5 1.5-.3-3 1-5.5 2-8z" stroke-width="2" stroke-linejoin="round"/></svg>
+              <span>Heat</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- Fan -->
+        <section class="card">
+          <h2 class="card-title">Fan speed</h2>
+          <div id="fanGrid" class="chip-row">
+            <button class="chip" data-fan="auto" aria-pressed="true">Auto</button>
+            <button class="chip" data-fan="low" aria-pressed="false">Low</button>
+            <button class="chip" data-fan="medium" aria-pressed="false">Medium</button>
+            <button class="chip" data-fan="high" aria-pressed="false">High</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Load logic as ES Module -->
+<script type="module" src="script.js"></script>
+</body>
+</html>
