@@ -132,12 +132,14 @@ void FirebaseManager::handleStreamData(const String& path, const String& type, c
     }
     
     if (changed) {
+        // apply() only honours fields with their has* flag set; `state` already
+        // merges the stream delta onto the current state, so send all four.
         AcCommand cmd;
-        cmd.power = state.power;
-        cmd.temp = state.temp;
-        cmd.mode = state.mode;
-        cmd.fan = state.fan;
-        
+        cmd.hasPower = true; cmd.power = state.power;
+        cmd.hasTemp = true;  cmd.temp = state.temp;
+        cmd.hasMode = true;  cmd.mode = state.mode;
+        cmd.hasFan = true;   cmd.fan = state.fan;
+
         acController_.apply(cmd, CmdSource::CLOUD, "firebase command");
     }
 }
