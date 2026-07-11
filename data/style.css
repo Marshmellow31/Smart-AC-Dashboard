@@ -1,37 +1,82 @@
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
+/* Registering --deg as an <angle> lets the conic-gradient dial fill actually
+   interpolate on transition (plain custom properties can't be animated by
+   the browser — they're treated as opaque strings without this). */
+@property --deg {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 150deg;
+}
+
+/* Apple system palette — true-black dark, iOS-gray light. */
 :root, :root[data-theme="dark"] {
-  --bg: #0b0d12;
-  --surface: #12151d;
-  --surface-2: #1a1e29;
-  --border: #242938;
-  --text: #f2f4f8;
-  --text-dim: #8991a3;
-  --text-faint: #596273;
-  --hairline: rgba(255, 255, 255, .06);
-  --popover: #0e1118;
-  --danger: #ff5f6d;
-  --ok: #3ddc84;
-  --warn: #ff9d4f;
-  --accent: #4fb0ff;
-  --accent-dim: rgba(79, 176, 255, .13);
-  --radius: 20px;
-  --radius-sm: 12px;
+  --bg: #000000;
+  --surface: #1C1C1E;
+  --surface-2: #2C2C2E;
+  --track: #2C2C2E;
+  --border: rgba(255, 255, 255, .08);
+  --text: #FFFFFF;
+  --text-dim: rgba(235, 235, 245, .6);
+  --text-faint: rgba(235, 235, 245, .3);
+  --hairline: rgba(255, 255, 255, .07);
+  --popover: #2C2C2E;
+  --danger: #FF453A;
+  --danger-dim: rgba(255, 69, 58, .17);
+  --ok: #30D158;
+  --warn: #FF9F0A;
+  --accent: #0A84FF;
+  --accent-dim: rgba(10, 132, 255, .17);
+  --accent-glow: rgba(10, 132, 255, .25);
+  /* Active segment in segmented controls (tabs, fan speed, timer). */
+  --seg: #636366;
+  --seg-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+  --card-shadow: none;
+  --radius: 22px;
+  --radius-sm: 14px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   color-scheme: dark;
+
+  /* Semantic per-mode colors (Apple HIG: color should carry meaning, not
+     just decoration) — cool stays the brand accent, others get their own
+     identity so state is glanceable without reading the label. */
+  --mode-cool: #0A84FF;
+  --mode-heat: #FF9F0A;
+  --mode-dry: #40CBE0;
+  --mode-fan: #98989F;
+  --mode-auto: #BF5AF2;
+
+  /* iOS control easing — used for every control transition. */
+  --spring: cubic-bezier(.32, .72, 0, 1);
 }
 
 :root[data-theme="light"] {
-  --bg: #f4f5f8;
-  --surface: #ffffff;
-  --surface-2: #eceef3;
-  --border: #dde1ea;
-  --text: #171b26;
-  --text-dim: #5b6475;
-  --text-faint: #8b93a5;
-  --hairline: rgba(0, 0, 0, .06);
-  --popover: #ffffff;
+  --bg: #F2F2F7;
+  --surface: #FFFFFF;
+  --surface-2: rgba(120, 120, 128, .10);
+  --track: rgba(120, 120, 128, .14);
+  --border: rgba(60, 60, 67, .08);
+  --text: #000000;
+  --text-dim: rgba(60, 60, 67, .6);
+  --text-faint: rgba(60, 60, 67, .33);
+  --hairline: rgba(60, 60, 67, .08);
+  --popover: #FFFFFF;
+  --danger: #FF3B30;
+  --danger-dim: rgba(255, 59, 48, .13);
+  --ok: #34C759;
+  --warn: #FF9500;
+  --accent: #007AFF;
+  --accent-dim: rgba(0, 122, 255, .12);
+  --accent-glow: rgba(0, 122, 255, .22);
+  --seg: #FFFFFF;
+  --seg-shadow: 0 2px 6px rgba(0, 0, 0, .12);
+  --card-shadow: 0 1px 1px rgba(0, 0, 0, .03), 0 6px 20px rgba(0, 0, 0, .05);
+  --mode-cool: #007AFF;
+  --mode-heat: #FF9500;
+  --mode-dry: #30B0C7;
+  --mode-fan: #8E8E93;
+  --mode-auto: #AF52DE;
   color-scheme: light;
 }
 
@@ -39,7 +84,7 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  transition: background .2s ease, color .2s ease;
+  transition: background .35s var(--spring), color .35s ease;
 }
 
 body { min-height: 100dvh; display: flex; justify-content: center; }
@@ -52,7 +97,7 @@ input, select, button { font-family: inherit; }
   padding: calc(20px + var(--safe-top)) 16px calc(40px + var(--safe-bottom));
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 22px;
 }
 
 /* Topbar */
@@ -70,11 +115,12 @@ input, select, button { font-family: inherit; }
 
 .top-actions { display: flex; align-items: center; gap: 8px; }
 .icon-btn {
-  width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+  width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
   border: 1px solid var(--border); background: var(--surface); color: var(--text-dim);
   font-size: 15px; line-height: 1; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  transition: background .15s ease, color .15s ease;
+  box-shadow: var(--card-shadow);
+  transition: background .3s ease, color .15s ease;
 }
 .icon-btn:active { transform: scale(.94); }
 
@@ -87,19 +133,20 @@ input, select, button { font-family: inherit; }
 .conn-dot.online { background: var(--ok); box-shadow: 0 0 0 4px rgba(61, 220, 132, .14); }
 .conn-dot.offline { background: var(--danger); box-shadow: 0 0 0 4px rgba(255, 95, 109, .14); }
 
+/* iOS segmented control: active segment floats on a recessed track. */
 .tabbar {
-  display: flex; gap: 4px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 12px; padding: 4px;
+  display: flex; gap: 2px;
+  background: var(--track);
+  border-radius: 11px; padding: 3px;
   overflow-x: auto;
 }
 .tab {
   border: none; background: none; color: var(--text-dim);
-  font-size: 13px; font-weight: 600; padding: 8px 16px;
+  font-size: 13px; font-weight: 600; letter-spacing: -.01em; padding: 7px 15px;
   border-radius: 9px; cursor: pointer; white-space: nowrap;
-  transition: background .15s ease, color .15s ease;
+  transition: background .25s var(--spring), color .25s ease, box-shadow .25s ease;
 }
-.tab[aria-selected="true"] { background: var(--surface-2); color: var(--text); }
+.tab[aria-selected="true"] { background: var(--seg); color: var(--text); box-shadow: var(--seg-shadow); }
 
 /* Phones: brand + theme toggle share the top row, tab bar drops to a full-width
    row below so nothing overflows the viewport. display:contents lets the tab
@@ -115,20 +162,27 @@ input, select, button { font-family: inherit; }
   .tab { flex: 1 0 auto; padding: 8px 12px; text-align: center; }
 }
 
-/* Persistent state summary bar */
+/* Persistent state summary — styled as a floating "Dynamic Island" pill that
+   morphs width with its content instead of a fixed-width bordered row. */
 .state-bar {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; flex-wrap: wrap;
-  padding: 10px 14px; font-size: 13px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  gap: 14px; flex-wrap: wrap;
+  width: fit-content; max-width: 100%; margin: 0 auto;
+  padding: 10px 20px; font-size: 13px;
+  background: var(--surface); /* fallback for browsers without color-mix() */
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--hairline); border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+  transition: box-shadow .3s var(--spring);
 }
 .state-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .state-main b { font-weight: 600; }
 .state-dot {
   width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-  background: var(--text-faint); transition: background .2s ease;
+  background: var(--text-faint); transition: background .3s var(--spring), box-shadow .3s var(--spring);
 }
-.state-dot.on { background: var(--accent); }
+.state-dot.on { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-dim); }
 .state-next { display: flex; align-items: center; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .state-next b { color: var(--text); font-weight: 600; }
 
@@ -150,26 +204,31 @@ input, select, button { font-family: inherit; }
 
 /* Tab panels + grid */
 .tab-panel[hidden] { display: none; }
+.tab-panel { animation: panelIn .4s var(--spring); }
+@keyframes panelIn { from { opacity: 0; transform: translateY(10px) scale(.995); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .tab-panel { animation: none; } }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 18px;
+  gap: 22px;
   align-items: start;
 }
-.col-stack { display: flex; flex-direction: column; gap: 18px; }
+.col-stack { display: flex; flex-direction: column; gap: 22px; }
 .full-span { grid-column: 1 / -1; }
 
 .card {
   position: relative; /* anchors the shared .tl-tip tooltips */
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 22px;
+  box-shadow: var(--card-shadow);
+  transition: background .3s ease;
 }
 .card-title {
   font-size: 12px; font-weight: 600; color: var(--text-dim);
   text-transform: uppercase; letter-spacing: .07em;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 .card-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -190,57 +249,90 @@ input, select, button { font-family: inherit; }
 .col { display: flex; flex-direction: column; gap: 2px; }
 .row-gap { display: flex; gap: 14px; }
 
-/* Switch */
+/* Hero dial: no card border/box — it sits directly on the page background so
+   it reads as the one dominant control, not one box among equals. */
+.dial-hero {
+  padding: 8px 20px 4px;
+  gap: 22px;
+}
+.hero-power { max-width: 340px; }
+.dial-xl { --size: 240px; --ring: 22px; }
+@media (min-width: 480px) { .dial-xl { --size: 280px; --ring: 24px; } }
+@media (min-width: 720px) { .dial-xl { --size: 320px; --ring: 26px; } }
+
+/* Secondary controls: everything that isn't the dial, grouped into one
+   flatter, denser card so it visually reads as "more options" rather than
+   co-equal with the hero control above it. */
+.secondary-controls {
+  display: flex; flex-direction: column; gap: 18px;
+  padding: 16px 20px;
+}
+.secondary-block .card-title { margin-bottom: 10px; }
+
+/* Switch — iOS proportions (51×31), green fill when on. */
 .switch {
-  position: relative; width: 52px; height: 30px; border-radius: 999px;
-  border: none; background: var(--surface-2); cursor: pointer;
-  flex-shrink: 0; transition: background .2s ease;
+  position: relative; width: 51px; height: 31px; border-radius: 999px;
+  border: none; background: var(--track); cursor: pointer;
+  flex-shrink: 0; transition: background .25s var(--spring);
 }
 .switch-knob {
-  position: absolute; top: 3px; left: 3px; width: 24px; height: 24px;
+  position: absolute; top: 2px; left: 2px; width: 27px; height: 27px;
   border-radius: 50%; background: #fff;
-  transition: transform .2s cubic-bezier(.4,0,.2,1);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .25), 0 0 0 .5px rgba(0, 0, 0, .04);
+  transition: transform .25s var(--spring);
 }
-.switch[aria-checked="true"] { background: var(--accent); }
-.switch[aria-checked="true"] .switch-knob { transform: translateX(22px); }
+.switch:active .switch-knob { transform: scale(.9); }
+.switch[aria-checked="true"]:active .switch-knob { transform: translateX(20px) scale(.9); }
+.switch[aria-checked="true"] { background: var(--ok); }
+.switch[aria-checked="true"] .switch-knob { transform: translateX(20px); }
 .switch.small { width: 40px; height: 24px; }
-.switch.small .switch-knob { width: 18px; height: 18px; top: 3px; left: 3px; }
+.switch.small .switch-knob { width: 20px; height: 20px; top: 2px; left: 2px; }
 .switch.small[aria-checked="true"] .switch-knob { transform: translateX(16px); }
+.switch.small:active .switch-knob { transform: scale(.9); }
+.switch.small[aria-checked="true"]:active .switch-knob { transform: translateX(16px) scale(.9); }
 .switch.is-pending { opacity: .6; pointer-events: none; }
 
-/* Dial component */
+/* Dial component — 300° sweep with the gap at the bottom. */
 .dial {
   position: relative; border-radius: 50%;
   width: var(--size); height: var(--size);
   touch-action: none; user-select: none; cursor: grab; flex-shrink: 0;
-  background: conic-gradient(from 225deg,
-    var(--accent) 0deg var(--deg, 135deg),
-    var(--border) var(--deg, 135deg) 270deg,
-    transparent 270deg 360deg);
+  background: conic-gradient(from 210deg,
+    var(--accent) 0deg var(--deg, 150deg),
+    var(--surface-2) var(--deg, 150deg) 300deg,
+    transparent 300deg 360deg);
+  transition: box-shadow .35s ease;
 }
 .dial:active { cursor: grabbing; }
 .dial.is-pending { opacity: .6; pointer-events: none; }
+/* Ambient glow in the mode's accent while the AC is running. */
+.dial-xl.powered { box-shadow: 0 14px 44px var(--accent-glow); }
 .dial-inner {
   position: absolute; inset: var(--ring); border-radius: 50%;
-  background: var(--surface); border: 1px solid var(--border);
+  background: var(--surface);
   pointer-events: none;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  transition: background .3s ease;
 }
 .dial-thumb {
-  position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px;
-  border-radius: 50%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.5);
+  position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .4), 0 0 0 .5px rgba(0, 0, 0, .08);
   pointer-events: none;
-  transform: rotate(var(--a, -135deg)) translateY(calc(var(--size) / -2 + var(--ring) / 2));
+  transform: rotate(var(--a, -150deg)) translateY(calc(var(--size) / -2 + var(--ring) / 2));
 }
+.dial:not(:active) .dial-thumb { transition: transform .3s var(--spring); }
+.dial:not(:active) { transition: background .3s var(--spring); }
 .dial-tick {
   position: absolute; left: 50%; top: 50%;
   width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px; border-radius: 50%;
-  background: var(--border); pointer-events: none;
-  transition: background .12s ease;
+  background: var(--text-faint); opacity: .5; pointer-events: none;
+  transition: background .12s ease, opacity .12s ease;
 }
-.dial-tick.on { background: var(--text); }
+.dial-tick.on { background: var(--text); opacity: .85; }
 .dial-readout { display: flex; align-items: baseline; font-variant-numeric: tabular-nums; }
 #tempValue { font-size: 58px; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
+@media (min-width: 720px) { #tempValue { font-size: 72px; } }
 .dim-22 { font-size: 22px; font-weight: 500; color: var(--text-dim); }
 
 .round-btn {
@@ -248,40 +340,53 @@ input, select, button { font-family: inherit; }
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
   font-size: 24px; font-weight: 600; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  transition: background .15s ease, transform .1s ease;
+  transition: background .15s ease, transform .25s var(--spring);
 }
-.round-btn:active { transform: scale(.94); background: var(--border); }
+.round-btn:active { transform: scale(.9); background: var(--border); }
 .round-btn:disabled { opacity: .35; cursor: not-allowed; transform: none; }
 
 /* Mode grid */
 .mode-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .mode-btn {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 12px 4px; border-radius: 12px; cursor: pointer;
-  font-size: 12px; font-weight: 600;
-  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
-  transition: background .15s ease, color .15s ease, border-color .15s ease;
+  padding: 12px 2px; border-radius: 14px; cursor: pointer;
+  font-size: 12px; font-weight: 600; letter-spacing: -.01em;
+  background: var(--surface-2); border: none; color: var(--text-dim);
+  transition: background .15s ease, color .15s ease;
 }
 .mode-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; }
-.mode-btn:active { transform: scale(.96); }
-.mode-btn[aria-pressed="true"] { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+.mode-btn { transition: background .25s var(--spring), color .25s var(--spring), transform .15s var(--spring); }
+.mode-btn:active { transform: scale(.94); }
+/* Pressed state deliberately tracks the dynamic --accent (set per-mode by
+   applyAccent() in script.js from the same MODE_META palette) rather than a
+   second hardcoded color source — one source of truth for "what color is
+   the active mode right now" everywhere in the UI (this button, the dial,
+   the state pill). At-rest icons get a faint permanent tint from the
+   semantic --mode-* vars below, so identity is visible before you tap too. */
+.mode-btn[aria-pressed="true"] { background: var(--accent-dim); color: var(--accent); }
+.mode-btn[data-mode="cool"] svg { color: var(--mode-cool); opacity: .55; }
+.mode-btn[data-mode="heat"] svg { color: var(--mode-heat); opacity: .55; }
+.mode-btn[data-mode="dry"] svg  { color: var(--mode-dry);  opacity: .55; }
+.mode-btn[data-mode="fan"] svg  { color: var(--mode-fan);  opacity: .55; }
+.mode-btn[data-mode="auto"] svg { color: var(--mode-auto); opacity: .55; }
+.mode-btn[aria-pressed="true"] svg { color: currentColor; opacity: 1; }
 .mode-btn.is-pending { opacity: .6; pointer-events: none; }
 
-/* Fan speed: segmented control */
+/* Fan speed: iOS segmented control */
 .fan-segmented {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
-  background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: 12px; padding: 4px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;
+  background: var(--track);
+  border-radius: 11px; padding: 3px;
 }
 .fan-seg {
-  padding: 11px 4px; border-radius: 9px; border: none; cursor: pointer;
-  font-size: 13px; font-weight: 600; min-height: 44px;
+  padding: 10px 2px; border-radius: 9px; border: none; cursor: pointer;
+  font-size: 13px; font-weight: 600; letter-spacing: -.01em; min-height: 40px;
   background: none; color: var(--text-dim);
-  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+  transition: background .25s var(--spring), color .25s ease, box-shadow .25s ease;
 }
 .fan-seg[aria-pressed="true"] {
-  background: var(--accent-dim); color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--seg); color: var(--text);
+  box-shadow: var(--seg-shadow);
 }
 .fan-seg.is-pending { opacity: .6; pointer-events: none; }
 
@@ -289,27 +394,32 @@ input, select, button { font-family: inherit; }
 .preset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
 .preset-btn {
   display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
-  padding: 12px 14px; border-radius: 12px; text-align: left; cursor: pointer;
-  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-  font-size: 14px; font-weight: 600;
+  padding: 13px 15px; border-radius: 14px; text-align: left; cursor: pointer;
+  background: var(--surface-2); border: none; color: var(--text);
+  font-size: 15px; font-weight: 600; letter-spacing: -.01em;
 }
 .preset-btn span:last-child { font-size: 12px; font-weight: 400; color: var(--text-dim); }
-.preset-btn:active { transform: scale(.98); }
+.preset-btn { transition: transform .25s var(--spring); }
+.preset-btn:active { transform: scale(.95); }
 
-/* Buttons */
+/* Buttons — filled accent pill for primary, tinted pills for the rest. */
 .btn-primary {
-  padding: 9px 18px; border-radius: 10px; border: 1px solid var(--accent);
-  background: var(--accent-dim); color: var(--accent);
-  font-size: 13px; font-weight: 600; cursor: pointer;
+  padding: 10px 20px; border-radius: 999px; border: none;
+  background: var(--accent); color: #fff;
+  font-size: 14px; font-weight: 600; letter-spacing: -.01em; cursor: pointer;
+  box-shadow: 0 4px 14px var(--accent-glow);
+  transition: transform .15s var(--spring), background .3s ease;
 }
+.btn-primary:active { transform: scale(.96); }
 .btn-ghost {
-  padding: 7px 12px; border-radius: 9px; border: 1px solid var(--border);
+  padding: 8px 14px; border-radius: 999px; border: none;
   background: var(--surface-2); color: var(--text-dim);
-  font-size: 12px; font-weight: 600; cursor: pointer;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background .25s ease;
 }
 .btn-danger-outline {
-  padding: 8px 16px; border-radius: 9px; border: 1px solid var(--danger);
-  background: rgba(255,95,109,.13); color: var(--danger);
+  padding: 8px 16px; border-radius: 999px; border: none;
+  background: var(--danger-dim); color: var(--danger);
   font-size: 13px; font-weight: 600; cursor: pointer;
 }
 .btn-text-danger {
@@ -341,20 +451,20 @@ input, select, button { font-family: inherit; }
 }
 .tl-marker.skipped { opacity: .45; }
 .tl-track {
-  position: relative; height: 40px; border-radius: 10px;
-  background: var(--surface-2); border: 1px solid var(--border);
+  position: relative; height: 40px; border-radius: 12px;
+  background: var(--surface-2);
   overflow: hidden; margin-top: 4px;
 }
 .tl-seg {
-  position: absolute; top: 3px; bottom: 3px;
-  border-radius: 5px; cursor: pointer;
+  position: absolute; top: 4px; bottom: 4px;
+  border-radius: 8px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 600; color: #0b0d12;
+  font-size: 11px; font-weight: 600; color: #000;
   overflow: hidden; white-space: nowrap;
 }
 .tl-now {
-  position: absolute; top: -4px; bottom: -4px; width: 2px;
-  background: var(--text); border-radius: 2px; pointer-events: none;
+  position: absolute; top: 0; bottom: 0; width: 2px;
+  background: var(--danger); border-radius: 2px; pointer-events: none;
 }
 .tl-gridline { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--hairline); pointer-events: none; }
 .tl-ticks { position: relative; height: 16px; margin-top: 4px; }
@@ -380,12 +490,13 @@ input, select, button { font-family: inherit; }
 #timerMin { font-size: 44px; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
 .dim-16 { font-size: 16px; font-weight: 500; color: var(--text-dim); }
 .timer-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
-.segmented { display: flex; gap: 4px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+.segmented { display: flex; gap: 2px; background: var(--track); border-radius: 11px; padding: 3px; }
 .segment {
-  padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer;
-  font-size: 13px; font-weight: 600; background: none; color: var(--text-dim);
+  padding: 8px 16px; border-radius: 9px; border: none; cursor: pointer;
+  font-size: 13px; font-weight: 600; letter-spacing: -.01em; background: none; color: var(--text-dim);
+  transition: background .25s var(--spring), color .25s ease, box-shadow .25s ease;
 }
-.segment[aria-pressed="true"] { background: var(--accent-dim); color: var(--accent); }
+.segment[aria-pressed="true"] { background: var(--seg); color: var(--text); box-shadow: var(--seg-shadow); }
 .timer-on-opts { display: flex; align-items: center; gap: 6px; }
 .mini-stepper { display: flex; align-items: center; gap: 6px; }
 .mini-stepper button {
@@ -396,13 +507,16 @@ input, select, button { font-family: inherit; }
 .timer-list { width: 100%; display: flex; flex-direction: column; gap: 8px; }
 .timer-row {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px;
-  padding: 10px 14px; font-size: 14px;
+  background: var(--surface-2); border: none; border-radius: 12px;
+  padding: 11px 14px; font-size: 13px;
+  animation: rowIn .3s var(--spring);
 }
 
 /* Row cards: schedules / programs */
 .row-list { display: flex; flex-direction: column; gap: 10px; }
-.row-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.row-card { background: var(--surface-2); border: none; border-radius: 14px; overflow: hidden; animation: rowIn .3s var(--spring); }
+@keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .row-card { animation: none; } }
 .row-summary { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
 .row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; cursor: pointer; background: none; border: none; text-align: left; color: inherit; padding: 0; }
 .row-name { font-size: 14px; font-weight: 600; }
@@ -442,15 +556,18 @@ input, select, button { font-family: inherit; }
 }
 
 .in-num, .in-txt, .in-sel, input[type="time"], input[type="number"] {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   color: var(--text); padding: 8px 10px; font-size: 14px;
+}
+.in-num:focus, .in-txt:focus, .in-sel:focus, input[type="time"]:focus, input[type="number"]:focus {
+  outline: none; border-color: var(--accent);
 }
 .in-num { width: 68px; text-align: right; }
 .in-txt { flex: 1; min-width: 100px; }
 
 /* Stats */
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.stat-tile { background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+.stat-tile { background: var(--surface-2); border: none; border-radius: 14px; padding: 14px; }
 .stat-label { font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
 .stat-value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat-sub { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
@@ -462,8 +579,8 @@ input, select, button { font-family: inherit; }
 .chart-grid .glabel { font-size: 10px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .chart-bars { position: absolute; inset: 14px 0 22px; display: flex; align-items: flex-end; gap: 2px; }
 .bar-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; cursor: pointer; position: relative; }
-.bar { width: 100%; max-width: 26px; border-radius: 4px 4px 0 0; background: #2e6da8; min-height: 0; }
-.bar-col.today .bar { background: var(--accent); }
+.bar { width: 100%; max-width: 26px; border-radius: 5px 5px 3px 3px; background: var(--accent-dim); box-shadow: inset 0 0 0 1px var(--accent-dim); min-height: 0; }
+.bar-col.today .bar { background: var(--accent); box-shadow: none; }
 .bar-col:hover .bar, .bar-col.active .bar { filter: brightness(1.25); }
 .bar-val { position: absolute; font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bar-day { position: absolute; bottom: -20px; font-size: 10px; color: var(--text-faint); }
@@ -482,6 +599,26 @@ input, select, button { font-family: inherit; }
 .log-time { color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .log-src { color: var(--text-dim); white-space: nowrap; }
 .log-msg { flex: 1; }
+
+/* Settings drill-down (iOS Settings.app-style push navigation) */
+.settings-home { margin-top: 4px; }
+.settings-nav-row {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 14px 16px; cursor: pointer;
+  font: inherit; color: inherit; text-align: left;
+  transition: background .15s ease, transform .2s var(--spring);
+}
+.settings-nav-row:active { transform: scale(.98); background: var(--border); }
+.nav-chevron { font-size: 20px; color: var(--text-faint); flex-shrink: 0; }
+.settings-detail[hidden] { display: none; }
+.settings-detail { animation: settings-push .25s var(--spring); }
+@keyframes settings-push { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+.settings-back {
+  border: none; background: none; color: var(--accent); cursor: pointer;
+  font-size: 15px; font-weight: 500; padding: 6px 2px; margin-bottom: 10px;
+}
+.settings-save-shared { width: 100%; }
+@media (prefers-reduced-motion: reduce) { .settings-detail { animation: none; } }
 
 /* Settings */
 .settings-rows { display: flex; flex-direction: column; }
@@ -528,7 +665,8 @@ input, select, button { font-family: inherit; }
   max-width: 90vw; background: var(--danger); color: #fff;
   font-size: 14px; font-weight: 600; padding: 12px 18px; border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0,0,0,.35); z-index: 100; text-align: center;
-  transition: transform .25s cubic-bezier(.4,0,.2,1);
+  visibility: hidden;
+  transition: transform .25s cubic-bezier(.4,0,.2,1), visibility 0s .25s;
 }
-.toast.visible { transform: translate(-50%, 0); }
+.toast.visible { transform: translate(-50%, 0); visibility: visible; transition: transform .25s cubic-bezier(.4,0,.2,1); }
 .toast.ok { background: #2e7d4f; }

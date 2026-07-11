@@ -12,6 +12,7 @@
 #include "SinricManager.h"
 #include "StatsManager.h"
 #include "TimeManager.h"
+#include "WeatherManager.h"
 #include "WebServerManager.h"
 #include "WiFiManager.h"
 
@@ -28,6 +29,7 @@ AcController acController(ac, eventLog, settings);
 AutomationEngine automation(acController, timeManager, eventLog, settings);
 StatsManager stats(acController, timeManager, eventLog, settings);
 SinricManager sinric(acController, eventLog);
+WeatherManager weather(eventLog);
 WebServerManager webServer(acController, automation, stats, settings, timeManager, eventLog);
 
 // Two name services so the UI is reachable by name from any client:
@@ -90,6 +92,8 @@ void setup() {
 
   acController.begin();
   automation.begin();
+  automation.setWeatherManager(&weather);
+  weather.setLocation(settings.weatherLat, settings.weatherLon);
   stats.begin();
 
   // External (manual/cloud/timer/safety) commands cancel a running program;
@@ -134,6 +138,11 @@ void loop() {
   stats.loop();
   sinric.loop();
   webServer.loop();
+
+  // Cheap enough to re-set every tick, so a settings-page location edit
+  // takes effect without extra plumbing.
+  weather.setLocation(settings.weatherLat, settings.weatherLon);
+  weather.loop(nowConnected);
 
   delay(10);
 }

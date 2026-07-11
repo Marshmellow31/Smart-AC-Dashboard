@@ -14,6 +14,11 @@ struct AppSettings {
   uint16_t filterLimitHours = 200; // filter-clean reminder threshold
   uint8_t maxContinuousHours = 0;  // safety auto-off; 0 = disabled
 
+  // Location used for outdoor-temperature schedule gating (WeatherManager).
+  // Defaults to Bharuch, Gujarat; editable so this project works elsewhere.
+  float weatherLat = 21.7051f;
+  float weatherLon = 72.9959f;
+
   void toJson(JsonObject o) const {
     o["holdMinutes"] = holdMinutes;
     o["automationEnabled"] = automationEnabled;
@@ -22,6 +27,8 @@ struct AppSettings {
     o["tariffPerKwh"] = tariffPerKwh;
     o["filterLimitHours"] = filterLimitHours;
     o["maxContinuousHours"] = maxContinuousHours;
+    o["weatherLat"] = weatherLat;
+    o["weatherLon"] = weatherLon;
   }
 
   void fromJson(JsonObjectConst o) {
@@ -32,5 +39,7 @@ struct AppSettings {
     if (!o["tariffPerKwh"].isNull()) tariffPerKwh = o["tariffPerKwh"].as<float>();
     if (!o["filterLimitHours"].isNull()) filterLimitHours = o["filterLimitHours"].as<uint16_t>();
     if (!o["maxContinuousHours"].isNull()) maxContinuousHours = o["maxContinuousHours"].as<uint8_t>();
+    if (!o["weatherLat"].isNull()) weatherLat = o["weatherLat"].as<float>();
+    if (!o["weatherLon"].isNull()) weatherLon = o["weatherLon"].as<float>();
   }
 };

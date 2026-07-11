@@ -4,6 +4,7 @@
 #include "ConfigStore.h"
 #include "EventLog.h"
 #include "TimeManager.h"
+#include "WeatherManager.h"
 
 namespace {
 
@@ -116,6 +117,12 @@ void AutomationEngine::loadAll() {
         if (!parseHHMM(o["time"] | "", slot.hour, slot.minute)) continue;
         String err;
         if (!acCommandFromJson(o["action"].as<JsonObjectConst>(), slot.action, err)) continue;
+        JsonObjectConst gate = o["weatherGate"].as<JsonObjectConst>();
+        if (!gate.isNull()) {
+          slot.weatherGateEnabled = true;
+          int t = gate["skipIfOutdoorBelowC"] | 28;
+          slot.skipIfOutdoorBelowC = static_cast<int8_t>(constrain(t, -20, 60));
+        }
         slots_.push_back(slot);
       }
     }
@@ -143,6 +150,8 @@ void AutomationEngine::loadAll() {
           String err;
           if (stepFromJson(so, step, err)) p.steps.push_back(step);
         }
+        const char* chainTo = o["chainTo"] | "";
+        if (chainTo[0] != '\0') strlcpy(p.chainToId, chainTo, sizeof(p.chainToId));
         if (!p.steps.empty()) programs_.push_back(p);
       }
     } else {
@@ -324,8 +333,11 @@ void AutomationEngine::tickProgram(time_t now) {
   }
 
   if (programEnd_ > 0 && now >= programEnd_) {
+    char chainId[20];
+    strlcpy(chainId, p->chainToId, sizeof(chainId));
     stopProgramLocked("end time reached");
     controller_.apply(AcCommand::powerOff(), CmdSource::AUTOMATION, "program end time");
+    if (chainId[0] != '\0') startChainedProgramLocked(chainId, now);
     return;
   }
 
@@ -337,7 +349,10 @@ void AutomationEngine::tickProgram(time_t now) {
   }
 
   if (!p->repeat && elapsed >= (time_t)total) {
+    char chainId[20];
+    strlcpy(chainId, p->chainToId, sizeof(chainId));
     stopProgramLocked("completed");
+    if (chainId[0] != '\0') startChainedProgramLocked(chainId, now);
     return;
   }
 
@@ -376,6 +391,13 @@ void AutomationEngine::tickSchedules(time_t now, const struct tm& lt) {
     if (programActive_) {
       log_.add(CmdSource::AUTOMATION, "skipped (program running): schedule '%s'",
                slot.name);
+      continue;
+    }
+    if (slot.weatherGateEnabled && weather_ && weather_->isValid() &&
+        weather_->outdoorTempC() < slot.skipIfOutdoorBelowC) {
+      log_.add(CmdSource::AUTOMATION,
+               "skipped (already %.1f\xC2\xB0""C outside): schedule '%s'",
+               weather_->outdoorTempC(), slot.name);
       continue;
     }
     char reason[48];
@@ -434,6 +456,32 @@ void AutomationEngine::stopProgramLocked(const char* reason) {
   programStart_ = programEnd_ = 0;
   lastStep_ = -1;
   runtimeDirty_ = true;
+}
+
+// Starts the next program in a chain. Assumes mutex_ is already held (called
+// from tickProgram right after the previous program stopped) and, unlike
+// startProgram(), doesn't touch the manual-hold override — a program can
+// only have been running with no hold active, so none needs releasing.
+void AutomationEngine::startChainedProgramLocked(const char* id, time_t now) {
+  Program* p = findProgram(id);
+  if (!p || p->steps.empty()) {
+    log_.add(CmdSource::AUTOMATION, "chained program '%s' not found, skipping", id);
+    return;
+  }
+  programActive_ = true;
+  strlcpy(activeProgramId_, p->id, sizeof(activeProgramId_));
+  programStart_ = now;
+  lastStep_ = -1;
+  programEnd_ = (p->endHour >= 0)
+                    ? nextOccurrence(now, (uint8_t)p->endHour, (uint8_t)p->endMinute)
+                    : 0;
+  runtimeDirty_ = true;
+  if (programEnd_ > 0) {
+    log_.add(CmdSource::AUTOMATION, "program '%s' chained from previous, ends %s",
+             p->name, time_.format(programEnd_).c_str());
+  } else {
+    log_.add(CmdSource::AUTOMATION, "program '%s' chained from previous", p->name);
+  }
 }
 
 bool AutomationEngine::startProgram(const String& id, const String& endTime, String& err) {
@@ -501,6 +549,7 @@ void AutomationEngine::programsToJson(JsonDocument& doc) const {
     o["name"] = p.name;
     o["repeat"] = p.repeat;
     o["endTime"] = p.endHour >= 0 ? formatHHMM(p.endHour, p.endMinute) : String("");
+    if (p.chainToId[0] != '\0') o["chainTo"] = p.chainToId;
     JsonArray steps = o["steps"].to<JsonArray>();
     for (const auto& s : p.steps) stepToJson(s, steps.add<JsonObject>());
   }
@@ -553,7 +602,25 @@ bool AutomationEngine::programsFromJson(JsonObjectConst root, String& err) {
       if (!stepFromJson(so, step, err)) return false;
       p.steps.push_back(step);
     }
+    const char* chainTo = o["chainTo"] | "";
+    if (chainTo[0] != '\0') strlcpy(p.chainToId, chainTo, sizeof(p.chainToId));
     parsed.push_back(std::move(p));
+  }
+
+  for (const auto& p : parsed) {
+    if (p.chainToId[0] == '\0') continue;
+    if (strcmp(p.chainToId, p.id) == 0) {
+      err = "program '" + String(p.id) + "' can't chain to itself";
+      return false;
+    }
+    bool found = false;
+    for (const auto& other : parsed) {
+      if (strcmp(other.id, p.chainToId) == 0) { found = true; break; }
+    }
+    if (!found) {
+      err = "program '" + String(p.id) + "' chains to unknown id '" + p.chainToId + "'";
+      return false;
+    }
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
@@ -579,6 +646,10 @@ void AutomationEngine::schedulesToJson(JsonDocument& doc) const {
     }
     o["time"] = formatHHMM(slot.hour, slot.minute);
     acCommandToJson(slot.action, o["action"].to<JsonObject>());
+    if (slot.weatherGateEnabled) {
+      JsonObject gate = o["weatherGate"].to<JsonObject>();
+      gate["skipIfOutdoorBelowC"] = slot.skipIfOutdoorBelowC;
+    }
   }
 }
 
@@ -616,6 +687,12 @@ bool AutomationEngine::schedulesFromJson(JsonObjectConst root, String& err) {
     }
     if (!acCommandFromJson(o["action"].as<JsonObjectConst>(), slot.action, err)) {
       return false;
+    }
+    JsonObjectConst gate = o["weatherGate"].as<JsonObjectConst>();
+    if (!gate.isNull()) {
+      slot.weatherGateEnabled = true;
+      int t = gate["skipIfOutdoorBelowC"] | 28;
+      slot.skipIfOutdoorBelowC = static_cast<int8_t>(constrain(t, -20, 60));
     }
     parsed.push_back(slot);
   }

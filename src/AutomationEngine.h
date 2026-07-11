@@ -12,6 +12,7 @@
 class AcController;
 class TimeManager;
 class EventLog;
+class WeatherManager;
 
 // One weekly schedule entry: fire an action at HH:MM on selected weekdays.
 struct ScheduleSlot {
@@ -21,6 +22,15 @@ struct ScheduleSlot {
   uint8_t hour = 0;
   uint8_t minute = 0;
   AcCommand action;
+
+  // Optional outdoor-temperature gate (needs WeatherManager data). When
+  // enabled, the slot only fires if the last known outdoor temperature is at
+  // or above skipIfOutdoorBelowC — e.g. skip a 6pm cooldown if it's already
+  // cool outside. If no weather reading is available yet, the gate is
+  // ignored and the slot fires normally (fail open, not fail silent).
+  bool weatherGateEnabled = false;
+  int8_t skipIfOutdoorBelowC = 28;
+
   int32_t lastHandledMinute = -1;  // epoch/60 fire-once guard, not persisted
 };
 
@@ -44,6 +54,14 @@ struct Program {
   int8_t endHour = -1;  // default end time for repeat programs; -1 = none
   int8_t endMinute = 0;
   std::vector<ProgramStep> steps;
+
+  // Optional: id of another program to auto-start when this one finishes on
+  // its own (all steps completed, or its end time was reached). Chaining is
+  // skipped if the program was cancelled by a manual/Sinric/timer/safety
+  // command or deleted out from under itself — only a natural finish chains.
+  // Ignored for repeat=true programs (they only stop via end time or cancel,
+  // both already covered above). Empty = no chaining.
+  char chainToId[20] = "";
 };
 
 struct CountdownTimer {
@@ -71,6 +89,10 @@ class AutomationEngine {
 
   AutomationEngine(AcController& controller, TimeManager& time, EventLog& log,
                    AppSettings& settings);
+
+  // Optional: wired in from main.cpp after construction. Weather-gated
+  // schedules no-op (fail open) until this is set.
+  void setWeatherManager(WeatherManager* weather) { weather_ = weather; }
 
   void begin();  // load persisted config, seed sleep presets, resume program
   void loop();
@@ -104,6 +126,7 @@ class AutomationEngine {
   // All helpers below assume mutex_ is held.
   Program* findProgram(const char* id);
   void stopProgramLocked(const char* reason);
+  void startChainedProgramLocked(const char* id, time_t now);
   bool computeNextSchedule(time_t now, time_t& fireAt, const char*& name) const;
   static time_t nextOccurrence(time_t after, uint8_t hour, uint8_t minute);
   static uint32_t programTotalSeconds(const Program& p);
@@ -115,6 +138,7 @@ class AutomationEngine {
   TimeManager& time_;
   EventLog& log_;
   AppSettings& settings_;
+  WeatherManager* weather_ = nullptr;
 
   mutable std::mutex mutex_;
   std::vector<ScheduleSlot> slots_;

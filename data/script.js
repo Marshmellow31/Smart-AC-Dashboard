@@ -25,14 +25,18 @@
   const FAN_LABELS = ["Auto", "Low", "Medium", "High"];
   const DAY_NAMES = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
   const TABS = ["control", "automation", "stats", "settings"];
+  // Apple system palette — per-mode accents with per-theme variants.
   const MODE_META = {
-    cool: { label: "Cool", accent: "#4fb0ff" },
-    dry: { label: "Dry", accent: "#4fd6c2" },
-    fan: { label: "Fan", accent: "#9aa7bd" },
-    auto: { label: "Auto", accent: "#b48cff" },
-    heat: { label: "Heat", accent: "#ff9d4f" },
+    cool: { label: "Cool", dark: "#0A84FF", light: "#007AFF" },
+    dry: { label: "Dry", dark: "#40CBE0", light: "#30B0C7" },
+    fan: { label: "Fan", dark: "#98989F", light: "#8E8E93" },
+    auto: { label: "Auto", dark: "#BF5AF2", light: "#AF52DE" },
+    heat: { label: "Heat", dark: "#FF9F0A", light: "#FF9500" },
   };
-  const OFF_ACCENT = "#3a4356";
+  const OFF_ACCENT = { dark: "#48484A", light: "#AEAEB2" };
+  const curTheme = () =>
+      document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  const modeAccent = (mode) => (MODE_META[mode] || MODE_META.cool)[curTheme()];
   const DAY_SECONDS = 24 * 3600;
 
   const $ = (id) => document.getElementById(id);
@@ -52,7 +56,8 @@
     "statCards", "usageChart", "chartMeta", "chartTip",
     "filterText", "filterFill", "filterReset", "logBox",
     "setAuto", "setRestore", "setHold", "setWatts", "setTariff",
-    "setFilter", "setSafety", "settingsSave",
+    "setFilter", "setSafety", "settingsSave", "settingsSaveBehaviour",
+    "setLat", "setLon", "weatherSave", "settingsHome",
   ].forEach((id) => { el[id] = $(id); });
 
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
@@ -90,7 +95,7 @@
   // Theme: dark by default, honours the OS preference on first run, then
   // remembers the user's manual choice. The <meta name="theme-color"> is kept
   // in sync so the mobile status bar matches the app background.
-  const THEME_BG = { dark: "#0b0d12", light: "#f4f5f8" };
+  const THEME_BG = { dark: "#000000", light: "#F2F2F7" };
   const themeMeta = document.querySelector('meta[name="theme-color"]');
 
   function applyTheme(theme) {
@@ -112,6 +117,8 @@
   el.themeToggle.addEventListener("click", () => {
     const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
     applyTheme(next);
+    // Accents have per-theme variants — recompute for the new theme.
+    applyAccent(app.state.mode, app.state.power);
     try { localStorage.setItem("ac-theme", next); } catch (_) { /* ignore */ }
   });
   initTheme();
@@ -165,22 +172,27 @@
   };
 
   // ------------------------------------------------------------------
-  // 3. Dial widget: 270° sweep with a gap at the bottom. Pointer + keyboard.
+  // 3. Dial widget: 300° sweep with a gap at the bottom. Pointer + keyboard.
+
+  const DIAL_SWEEP = 300;                     // degrees of travel
+  const DIAL_START = -(DIAL_SWEEP / 2);       // thumb angle at min (-150°)
 
   function makeDial(node, { min, max, step, get, set, commit }) {
     const frac = (v) => (v - min) / (max - min);
     function paint(v) {
-      const deg = 270 * Math.max(0, Math.min(1, frac(v)));
+      const deg = DIAL_SWEEP * Math.max(0, Math.min(1, frac(v)));
       node.style.setProperty("--deg", deg + "deg");
-      node.style.setProperty("--a", (-135 + deg) + "deg");
+      node.style.setProperty("--a", (DIAL_START + deg) + "deg");
       node.setAttribute("aria-valuenow", v);
     }
     function fromEvent(e) {
       const r = node.getBoundingClientRect();
       let a = Math.atan2(e.clientY - r.top - r.height / 2, e.clientX - r.left - r.width / 2) * 180 / Math.PI;
-      a = (a - 135 + 360) % 360;
-      if (a > 270) a = a > 315 ? 0 : 270;
-      return Math.round((min + (a / 270) * (max - min)) / step) * step;
+      // atan2's 0° is at 3 o'clock; the sweep starts 120° clockwise from
+      // there (the conic-gradient's "from 210deg", measured from 12 o'clock).
+      a = (a - 120 + 360) % 360;
+      if (a > DIAL_SWEEP) a = a > DIAL_SWEEP + (360 - DIAL_SWEEP) / 2 ? 0 : DIAL_SWEEP;
+      return Math.round((min + (a / DIAL_SWEEP) * (max - min)) / step) * step;
     }
     node.addEventListener("pointerdown", (e) => {
       node.setPointerCapture(e.pointerId);
@@ -207,15 +219,16 @@
   let tempDraft = app.state.temp;
 
   // Tick ring around the temperature dial: one dot per degree, lit up to the
-  // current setting. Built once, positioned on the same 270° sweep as the thumb.
+  // current setting. Built once, positioned on the same 300° sweep as the thumb.
   const tempTicks = (() => {
     const frag = document.createDocumentFragment();
     const nodes = [];
     for (let i = 0; i <= MAX_TEMP - MIN_TEMP; i++) {
-      const deg = -135 + 270 * (i / (MAX_TEMP - MIN_TEMP));
+      const deg = DIAL_START + DIAL_SWEEP * (i / (MAX_TEMP - MIN_TEMP));
       const tick = document.createElement("span");
       tick.className = "dial-tick";
-      tick.style.transform = `rotate(${deg}deg) translateY(-92px)`;
+      // Radius tracks the responsive --size: just inside the ring.
+      tick.style.transform = `rotate(${deg}deg) translateY(calc(var(--size) / -2 + var(--ring) + 11px))`;
       frag.appendChild(tick);
       nodes.push(tick);
     }
@@ -239,10 +252,11 @@
   });
 
   function applyAccent(mode, power) {
-    const accent = power ? (MODE_META[mode] || MODE_META.cool).accent : OFF_ACCENT;
+    const accent = power ? modeAccent(mode) : OFF_ACCENT[curTheme()];
     const root = document.documentElement.style;
     root.setProperty("--accent", accent);
-    root.setProperty("--accent-dim", accent + "22");
+    root.setProperty("--accent-dim", accent + "26");
+    root.setProperty("--accent-glow", accent + "40");
   }
 
   function renderControls(s) {
@@ -253,6 +267,7 @@
 
     el.powerToggle.setAttribute("aria-checked", String(s.power));
     el.powerState.textContent = s.power ? "On" : "Off";
+    el.tempDial.classList.toggle("powered", !!s.power);
 
     el.tempValue.textContent = s.temp;
     el.tempModeLabel.textContent = s.power ? (MODE_META[s.mode] ? MODE_META[s.mode].label : s.mode) : "Standby";
@@ -505,6 +520,14 @@
               <select class="s-fan in-sel">${fanOptions(s.action.fan || "auto")}</select>
             </span>
           </div>
+          <div class="field-row">
+            <label class="dim-13" style="display:flex;align-items:center;gap:6px">
+              <input type="checkbox" class="s-gate" ${s.weatherGate ? "checked" : ""}> skip if already cool outside
+            </label>
+            <span class="s-gate-opts field-row" ${s.weatherGate ? "" : 'style="display:none"'}>
+              below <input type="number" class="s-gate-temp in-num" min="-20" max="60" value="${s.weatherGate ? s.weatherGate.skipIfOutdoorBelowC : 28}" aria-label="Outdoor threshold">°
+            </span>
+          </div>
         </div>
       </div>`;
     }).join("") || `<div class="faint-12">No schedules yet. Add one, e.g. ON at 23:00 every day at 24°.</div>`;
@@ -519,12 +542,17 @@
         mode: row.querySelector(".s-mode").value,
         fan: row.querySelector(".s-fan").value,
       };
+      const gateOn = row.querySelector(".s-gate").checked;
+      const weatherGate = gateOn
+          ? { skipIfOutdoorBelowC: Number(row.querySelector(".s-gate-temp").value) }
+          : undefined;
       return {
         name: row.querySelector(".s-name").value || "schedule",
         enabled: row.querySelector(".s-enabled-switch").getAttribute("aria-checked") === "true",
         time: row.querySelector(".s-time").value || "00:00",
         days: [...row.querySelectorAll("[data-day]")].filter((c) => c.checked).map((c) => Number(c.dataset.day)),
         action,
+        weatherGate,
       };
     });
   }
@@ -563,6 +591,10 @@
     if (evt.target.classList.contains("s-power")) {
       const opts = evt.target.closest(".row-editor").querySelector(".s-onopts");
       opts.style.display = evt.target.value === "off" ? "none" : "";
+    }
+    if (evt.target.classList.contains("s-gate")) {
+      const opts = evt.target.closest(".row-editor").querySelector(".s-gate-opts");
+      opts.style.display = evt.target.checked ? "" : "none";
     }
     markScheduleDirty();
   });
@@ -618,7 +650,7 @@
   function stepColor(step) {
     if (!step.on) return null;
     const mode = step.mode || "cool";
-    if (mode !== "cool" && mode !== "auto") return MODE_META[mode].accent;
+    if (mode !== "cool" && mode !== "auto") return modeAccent(mode);
     const t = Math.max(0, Math.min(1, ((step.temp || 24) - MIN_TEMP) / (MAX_TEMP - MIN_TEMP)));
     const from = [126, 197, 255], to = [37, 84, 128];  // 16° bright → 30° muted
     const c = from.map((f, i) => Math.round(f + (to[i] - f) * t));
@@ -679,13 +711,20 @@
       </div>`;
   }
 
+  // Programs a given program could legally chain to: anyone but itself.
+  function chainOptionsHtml(p) {
+    const opts = app.programs.filter((o) => o.id !== p.id)
+        .map((o) => `<option value="${esc(o.id)}" ${p.chainTo === o.id ? "selected" : ""}>${esc(o.name)}</option>`).join("");
+    return `<option value="">— none —</option>${opts}`;
+  }
+
   function renderPrograms() {
     el.programList.innerHTML = app.programs.map((p, i) => `
       <div class="row-card" data-idx="${i}">
         <div class="row-summary">
           <button type="button" class="row-main" data-toggle>
             <span class="row-name">${esc(p.name)}</span>
-            <span class="row-desc">${esc(programDesc(p))}</span>
+            <span class="row-desc">${esc(programDesc(p))}${p.chainTo ? " · chains to another program" : ""}</span>
             ${stepbarHtml(p.steps)}
           </button>
           <span class="row-action" data-pid="${esc(p.id)}">${programActionHtml(p)}</span>
@@ -698,6 +737,10 @@
             <span class="field-label">default end</span>
             <input type="time" class="p-end in-sel" value="${esc(p.endTime || "")}">
             <button type="button" class="btn-text-danger p-del">Delete</button>
+          </div>
+          <div class="field-row">
+            <span class="field-label">when this finishes on its own, start</span>
+            <select class="p-chain in-sel">${chainOptionsHtml(p)}</select>
           </div>
           ${p.steps.map((s, si) => stepEditorHtml(s, si, p.steps.length)).join("")}
           <div class="field-row">
@@ -714,6 +757,7 @@
       name: row.querySelector(".p-name").value || "program",
       repeat: row.querySelector(".p-repeat").checked,
       endTime: row.querySelector(".p-end").value || "",
+      chainTo: row.querySelector(".p-chain").value || "",
       steps: [...row.querySelectorAll(".step-row")].map((sr) => {
         const on = sr.querySelector(".p-on").value === "on";
         const step = { on, minutes: Number(sr.querySelector(".p-min").value) };
@@ -1221,10 +1265,15 @@
       el.setTariff.value = s.tariffPerKwh;
       el.setFilter.value = s.filterLimitHours;
       el.setSafety.value = s.maxContinuousHours;
+      el.setLat.value = s.weatherLat;
+      el.setLon.value = s.weatherLon;
     } catch (_) { /* defaults remain */ }
   }
 
-  el.settingsSave.addEventListener("click", async () => {
+  // Behaviour and Energy live in separate drill-down panels but save
+  // together (matches the original single-card layout's semantics) — both
+  // panels' save buttons trigger this same function.
+  async function saveMainSettings() {
     try {
       const s = await apiPost("/api/settings", {
         holdMinutes: Number(el.setHold.value),
@@ -1239,6 +1288,19 @@
       showToast("Settings saved", true);
       refreshStatus();
       loadStats();
+    } catch (e) { showToast(e.message); }
+  }
+  el.settingsSave.addEventListener("click", saveMainSettings);
+  el.settingsSaveBehaviour.addEventListener("click", saveMainSettings);
+
+  el.weatherSave.addEventListener("click", async () => {
+    try {
+      const s = await apiPost("/api/settings", {
+        weatherLat: Number(el.setLat.value),
+        weatherLon: Number(el.setLon.value),
+      });
+      app.settings = s;
+      showToast("Location saved", true);
     } catch (e) { showToast(e.message); }
   });
 
@@ -1266,9 +1328,27 @@
     if (updateHash !== false) history.replaceState(null, "", "#" + tab);
     if (tab === "stats") { loadStats(); loadLog(); }
     if (tab === "automation") { loadTimers(); renderTimeline(); }
+    if (tab === "settings") showSettingsGroup(null);
   }
   document.querySelectorAll(".tab").forEach((btn) => btn.addEventListener("click", () => setTab(btn.dataset.tab)));
   window.addEventListener("hashchange", () => setTab(location.hash.slice(1)));
+
+  // ------------------------------------------------------------------
+  // Settings drill-down: one home list of groups, tapping a row pushes that
+  // group's detail panel (iOS Settings.app style) instead of showing every
+  // card flat on one screen.
+  function showSettingsGroup(group) {
+    el.settingsHome.hidden = !!group;
+    document.querySelectorAll(".settings-detail").forEach((panel) => {
+      panel.hidden = panel.dataset.group !== group;
+    });
+  }
+  el.settingsHome.addEventListener("click", (evt) => {
+    const row = evt.target.closest("[data-open]");
+    if (row) showSettingsGroup(row.dataset.open);
+  });
+  document.querySelectorAll(".settings-back").forEach((btn) =>
+      btn.addEventListener("click", () => showSettingsGroup(null)));
 
   // ------------------------------------------------------------------
   // Sync gate: block the UI until we've confirmed the device's live state.

@@ -3,16 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<meta name="theme-color" content="#0b0d12">
+<meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="AC Control">
 <title>AC Control</title>
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0d12'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%234fb0ff'%3E%E2%9D%84%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23000000'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%230A84FF'%3E%E2%9D%84%3C/text%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="icons/apple-touch.png">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 <div id="toast" class="toast" role="alert" aria-live="assertive"></div>
@@ -64,8 +64,12 @@
   <!-- ============ CONTROL ============ -->
   <section id="tab-control" class="tab-panel" data-panel="control">
     <div class="grid">
-      <div class="card dial-card">
-        <div class="row-between">
+      <!-- Hero: the dial is the one control that dominates the screen, full-
+           bleed with no card border, the way an Apple Watch "Now Playing"
+           complication owns the face. Everything else is secondary and
+           collapses into a compact row beneath it. -->
+      <div class="dial-card dial-hero full-span">
+        <div class="row-between hero-power">
           <div class="col">
             <span class="label-16">Power</span>
             <span id="powerState" class="dim-13">Off</span>
@@ -75,7 +79,7 @@
           </button>
         </div>
 
-        <div class="dial" id="tempDial" style="--size:240px;--ring:22px" role="slider" tabindex="0"
+        <div class="dial dial-xl" id="tempDial" role="slider" tabindex="0"
              aria-label="Temperature" aria-valuemin="16" aria-valuemax="30" aria-valuenow="24">
           <div class="dial-inner">
             <span id="tempModeLabel" class="dim-12-upper">Cool</span>
@@ -91,8 +95,11 @@
         </div>
       </div>
 
-      <div class="col-stack">
-        <section class="card">
+      <!-- Secondary controls: one flatter, denser card instead of three
+           bordered ones — mode/fan/presets read as "more options", not
+           co-equal with the dial. -->
+      <section class="card secondary-controls full-span">
+        <div class="secondary-block">
           <h2 class="card-title">Mode</h2>
           <div id="modeGrid" class="mode-grid">
             <button class="mode-btn" data-mode="cool" aria-pressed="false">
@@ -116,9 +123,9 @@
               <span>Heat</span>
             </button>
           </div>
-        </section>
+        </div>
 
-        <section class="card">
+        <div class="secondary-block">
           <h2 class="card-title">Fan speed</h2>
           <div id="fanGrid" class="fan-segmented">
             <button class="fan-seg" data-fan="auto" aria-pressed="false">Auto</button>
@@ -126,13 +133,13 @@
             <button class="fan-seg" data-fan="medium" aria-pressed="false">Medium</button>
             <button class="fan-seg" data-fan="high" aria-pressed="false">High</button>
           </div>
-        </section>
+        </div>
 
-        <section class="card">
+        <div class="secondary-block">
           <h2 class="card-title">Presets</h2>
           <div id="presetButtons" class="preset-grid"></div>
-        </section>
-      </div>
+        </div>
+      </section>
     </div>
   </section>
 
@@ -246,8 +253,29 @@
   </section>
 
   <!-- ============ SETTINGS ============ -->
+  <!-- iOS Settings.app-style drill-down: one home list of groups, tapping a
+       row pushes that group's detail panel (with a back row) instead of
+       dumping every card flat on one screen. Pure show/hide + a handful of
+       lines in script.js — the existing per-field ids/save handlers below
+       are untouched, so nothing about how settings load/save changed. -->
   <section id="tab-settings" class="tab-panel" data-panel="settings" hidden>
-    <div class="grid">
+    <div id="settingsHome" class="row-list settings-home">
+      <button type="button" class="row-card settings-nav-row" data-open="behaviour">
+        <span class="row-main"><span class="row-name">Behaviour</span><span class="row-desc">Schedules, restore-on-boot, safety auto-off</span></span>
+        <span class="nav-chevron">&rsaquo;</span>
+      </button>
+      <button type="button" class="row-card settings-nav-row" data-open="energy">
+        <span class="row-main"><span class="row-name">Energy &amp; maintenance</span><span class="row-desc">Power draw, tariff, filter reminder</span></span>
+        <span class="nav-chevron">&rsaquo;</span>
+      </button>
+      <button type="button" class="row-card settings-nav-row" data-open="weather">
+        <span class="row-main"><span class="row-name">Weather gate location</span><span class="row-desc">Bharuch, Gujarat (default)</span></span>
+        <span class="nav-chevron">&rsaquo;</span>
+      </button>
+    </div>
+
+    <div class="settings-detail" data-group="behaviour" hidden>
+      <button type="button" class="settings-back" data-back>&lsaquo; Settings</button>
       <section class="card">
         <h2 class="card-title">Behaviour</h2>
         <div class="settings-rows">
@@ -262,7 +290,13 @@
           <div class="number-row"><div class="col"><span>Manual hold (min)</span><span class="hint">How long manual changes pause schedules</span></div><input id="setHold" type="number" min="0" max="1440" class="in-num"></div>
           <div class="number-row"><div class="col"><span>Safety auto-off (hours)</span><span class="hint">0 disables the limit</span></div><input id="setSafety" type="number" min="0" max="24" class="in-num"></div>
         </div>
+        <p class="hint" style="margin-top:10px">Saved together with Energy &amp; maintenance.</p>
+        <button id="settingsSaveBehaviour" class="btn-primary settings-save-shared" style="margin-top:10px">Save settings</button>
       </section>
+    </div>
+
+    <div class="settings-detail" data-group="energy" hidden>
+      <button type="button" class="settings-back" data-back>&lsaquo; Settings</button>
       <section class="card">
         <h2 class="card-title">Energy &amp; maintenance</h2>
         <div class="settings-rows">
@@ -270,13 +304,26 @@
           <div class="number-row"><div class="col"><span>Tariff (&#8377;/kWh)</span><span class="hint">Your electricity rate</span></div><input id="setTariff" type="number" min="0" step="0.1" class="in-num"></div>
           <div class="number-row"><div class="col"><span>Filter limit (hours)</span><span class="hint">Reminder threshold for cleaning</span></div><input id="setFilter" type="number" min="10" max="2000" class="in-num"></div>
         </div>
-        <button id="settingsSave" class="btn-primary" style="margin-top:14px">Save settings</button>
+        <button id="settingsSave" class="btn-primary settings-save-shared" style="margin-top:14px">Save settings</button>
+      </section>
+    </div>
+
+    <div class="settings-detail" data-group="weather" hidden>
+      <button type="button" class="settings-back" data-back>&lsaquo; Settings</button>
+      <section class="card">
+        <h2 class="card-title">Weather gate location</h2>
+        <p class="hint">Outdoor temperature for schedules that skip cooldowns when it's already cool outside. Defaults to Bharuch, Gujarat.</p>
+        <div class="settings-rows">
+          <div class="number-row"><div class="col"><span>Latitude</span></div><input id="setLat" type="number" min="-90" max="90" step="0.0001" class="in-num"></div>
+          <div class="number-row"><div class="col"><span>Longitude</span></div><input id="setLon" type="number" min="-180" max="180" step="0.0001" class="in-num"></div>
+        </div>
+        <button id="weatherSave" class="btn-primary" style="margin-top:14px">Save location</button>
       </section>
     </div>
   </section>
 </div>
 
-<script src="script.js?v=2"></script>
+<script src="script.js?v=3"></script>
 <script>
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
