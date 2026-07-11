@@ -76,11 +76,6 @@ void WebServerManager::sendOk(AsyncWebServerRequest* request) {
 
 void WebServerManager::sendStatus(AsyncWebServerRequest* request) {
   JsonDocument doc;
-  statusJson(doc);
-  sendJson(request, doc);
-}
-
-void WebServerManager::statusJson(JsonDocument& doc) const {
   ACState s = controller_.state();
   doc["power"] = s.power;
   doc["mode"] = acModeToString(s.mode);
@@ -101,6 +96,8 @@ void WebServerManager::statusJson(JsonDocument& doc) const {
 
   doc["automationEnabled"] = settings_.automationEnabled;
   engine_.statusToJson(doc.as<JsonObject>());
+
+  sendJson(request, doc);
 }
 
 // ---------------------------------------------------------------------------
@@ -343,73 +340,31 @@ void WebServerManager::presetsToJson(JsonDocument& doc) const {
   }
 }
 
-bool WebServerManager::applyPreset(const String& name, CmdSource source, String& err) {
-  AcCommand action;
-  bool found = false;
-  {
-    std::lock_guard<std::mutex> lock(presetsMutex_);
-    for (const auto& p : presets_) {
-      if (name == p.name) {
-        action = p.action;
-        found = true;
-        break;
-      }
-    }
-  }
-  if (!found) {
-    err = "Unknown preset";
-    return false;
-  }
-  char reason[40];
-  snprintf(reason, sizeof(reason), "preset '%s'", name.c_str());
-  controller_.apply(action, source, reason);
-  return true;
-}
-
-bool WebServerManager::setPresetsJson(JsonObjectConst root, String& err) {
-  JsonArrayConst arr = root["presets"].as<JsonArrayConst>();
-  if (arr.isNull()) {
-    err = "expected {\"presets\": [...]}";
-    return false;
-  }
-  if (arr.size() > kMaxPresets) {
-    err = "too many presets (max 10)";
-    return false;
-  }
-  std::vector<Preset> parsed;
-  for (JsonObjectConst o : arr) {
-    Preset p;
-    strlcpy(p.name, o["name"] | "", sizeof(p.name));
-    if (p.name[0] == '\0') {
-      err = "every preset needs a name";
-      return false;
-    }
-    String cmdErr;
-    if (!acCommandFromJson(o["action"].as<JsonObjectConst>(), p.action, cmdErr)) {
-      err = "action: " + cmdErr;
-      return false;
-    }
-    parsed.push_back(p);
-  }
-  {
-    std::lock_guard<std::mutex> lock(presetsMutex_);
-    presets_ = std::move(parsed);
-  }
-  presetsDirty_ = true;
-  return true;
-}
-
 void WebServerManager::setupPresetRoutes() {
   // /apply registered before the bare URI (sub-path matching, see timers).
   auto* applyHandler = new AsyncCallbackJsonWebHandler(
       "/api/presets/apply", [this](AsyncWebServerRequest* request, JsonVariant& json) {
         JsonObject body = json.as<JsonObject>();
         String name = body["name"] | "";
-        String err;
-        if (!applyPreset(name, CmdSource::MANUAL, err)) {
-          sendError(request, 404, err);
+        AcCommand action;
+        bool found = false;
+        {
+          std::lock_guard<std::mutex> lock(presetsMutex_);
+          for (const auto& p : presets_) {
+            if (name == p.name) {
+              action = p.action;
+              found = true;
+              break;
+            }
+          }
+        }
+        if (!found) {
+          sendError(request, 404, "Unknown preset");
           return;
         }
+        char reason[40];
+        snprintf(reason, sizeof(reason), "preset '%s'", name.c_str());
+        controller_.apply(action, CmdSource::MANUAL, reason);
         sendStatus(request);
       });
   server_.addHandler(applyHandler);
@@ -422,11 +377,35 @@ void WebServerManager::setupPresetRoutes() {
 
   auto* presetsHandler = new AsyncCallbackJsonWebHandler(
       "/api/presets", [this](AsyncWebServerRequest* request, JsonVariant& json) {
-        String err;
-        if (!setPresetsJson(json.as<JsonObjectConst>(), err)) {
-          sendError(request, 400, err);
+        JsonArrayConst arr = json.as<JsonObjectConst>()["presets"].as<JsonArrayConst>();
+        if (arr.isNull()) {
+          sendError(request, 400, "expected {\"presets\": [...]}");
           return;
         }
+        if (arr.size() > kMaxPresets) {
+          sendError(request, 400, "too many presets (max 10)");
+          return;
+        }
+        std::vector<Preset> parsed;
+        for (JsonObjectConst o : arr) {
+          Preset p;
+          strlcpy(p.name, o["name"] | "", sizeof(p.name));
+          if (p.name[0] == '\0') {
+            sendError(request, 400, "every preset needs a name");
+            return;
+          }
+          String err;
+          if (!acCommandFromJson(o["action"].as<JsonObjectConst>(), p.action, err)) {
+            sendError(request, 400, "action: " + err);
+            return;
+          }
+          parsed.push_back(p);
+        }
+        {
+          std::lock_guard<std::mutex> lock(presetsMutex_);
+          presets_ = std::move(parsed);
+        }
+        presetsDirty_ = true;
         JsonDocument doc;
         presetsToJson(doc);
         sendJson(request, doc);
