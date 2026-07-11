@@ -12,13 +12,51 @@
   <img alt="Build" src="https://img.shields.io/badge/build-PlatformIO-orange">
   <img alt="Filesystem" src="https://img.shields.io/badge/fs-LittleFS-green">
   <img alt="UI" src="https://img.shields.io/badge/UI-vanilla%20JS%20PWA-yellow">
+  <img alt="Cost" src="https://img.shields.io/badge/build%20cost-~%E2%82%B9600%E2%80%93700-brightgreen">
 </p>
+
+> **Turn a plain Samsung AC into a smart AC for ~₹600–700.** No hub, no
+> subscription, no vendor app — just an ESP32, an IR LED, and this firmware.
+> Clone the repo, flash it, and you get flagship‑level features (scheduling,
+> sleep curves, energy tracking, Alexa/Google voice) on a basic unit.
+
+---
+
+## The story
+
+I started this out of pure curiosity: I wanted to turn my basic **Samsung split
+AC** into something I could control from my phone — turn it on before I get home,
+schedule it, and generally push it to the "next level" with a bit of tech.
+
+So I bought the cheapest parts I could: an **ESP32 DevKit v1**, one **IR
+transmitter**, and a handful of **jumper cables, resistors, and transistors**.
+
+The first attempt **failed**. I wired the IR LED through a transistor — and spent
+a long time debugging why nothing came out. After a lot of head‑scratching, it
+turned out the part I'd grabbed was a **MOSFET, not the NPN transistor** my
+circuit assumed. The gate/base behaviour is different, so the LED never switched
+the way I expected. I debugged this for ages without finding it.
+
+Eventually I tried a completely different approach: **skip the driver entirely
+and connect the IR transmitter straight to the ESP32**, then rewrite the code
+around that. And it *worked* — the AC finally responded.
+
+From there I levelled it up: a **fully functional web app that runs on the ESP32
+itself**, reachable over my local Wi‑Fi, with features you normally only see on
+flagship ACs. I used **Claude Code** for the coding, planning, and wiring up the
+integrations (I made the accounts, designed the UI, and added the features).
+
+You can clone this repo and build the exact same setup to make your own "dumb"
+AC smart for roughly **₹600–700**. Full parts list, wiring, and photos are in the
+[hardware build guide](#hardware-build-guide) below.
 
 ---
 
 ## Table of contents
 
 - [What it does](#what-it-does)
+- [Build it yourself (~₹600–700)](#build-it-yourself-600700)
+- [Hardware build guide](#hardware-build-guide)
 - [How it all fits together](#how-it-all-fits-together)
 - [Hardware](#hardware)
 - [Getting started](#getting-started)
@@ -97,24 +135,73 @@ command is concerned?"* This one fact shapes the whole design (see
 
 ---
 
-## Hardware
+## Build it yourself (~₹600–700)
+
+Everything you need to make a basic AC smart, at hobby prices. Exact prices vary
+by seller, but this is the ballpark for the whole build:
+
+| Part | Qty | Approx. cost (₹) |
+|------|-----|------------------|
+| ESP32 DevKit v1 (ESP32‑WROOM) | 1 | 350–450 |
+| IR transmitter (IR LED module or bare 940 nm LED) | 1 | 30–80 |
+| Jumper wires (M‑M / M‑F pack) | few | 40–60 |
+| Resistors (220 Ω) | few | 10–20 |
+| NPN transistors (2N2222) — *optional, for longer range* | few | 10–20 |
+| Breadboard *(optional)* | 1 | 60–80 |
+| **Total** | | **~₹600–700** |
+
+You almost certainly already have a phone and a Wi‑Fi router — that's the rest of
+the system. No hub, no subscription, no cloud account required (Alexa/Google is
+optional).
+
+---
+
+## Hardware build guide
+
+> 📸 **Photos:** build pictures live in [`media/`](media/) — parts laid out,
+> wiring, the assembled board, and the web app running. See
+> [`media/README.md`](media/README.md) for what each shot is. *(Add your photos
+> to that folder and they'll show up here.)*
 
 | Part | Notes |
 |------|-------|
-| **ESP32 dev board** | `esp32dev` PlatformIO target (any generic ESP32‑WROOM works) |
-| **IR LED** + NPN transistor driver | Data on **GPIO 4**, 38 kHz carrier. A bare GPIO can't drive an IR LED far — use a transistor (e.g. 2N2222) + current‑limiting resistor for whole‑room range. |
-| **Samsung split AC** | Protocol handled by IRremoteESP8266's `IRSamsungAc`. Other brands would only need a different `ir_*` driver in `AcController`. |
+| **ESP32 dev board** | `esp32dev` PlatformIO target (any generic ESP32‑WROOM / DevKit v1 works) |
+| **IR transmitter** | Data on **GPIO 4**, 38 kHz carrier. |
+| **Samsung split AC** | Protocol handled by IRremoteESP8266's `IRSamsungAc`. Other brands only need a different `ir_*` driver in `AcController`. |
+
+### Wiring — two options
+
+**Option A — direct connection (simplest; this is what I ended up using).**
+Wire the IR transmitter straight to the ESP32. No driver, fewer parts, and it
+just works for typical same‑room range. The trade‑off is shorter distance and
+lower LED current, so mount the ESP32 where a normal remote would comfortably
+reach the AC.
 
 ```
-ESP32 GPIO4 ──[ 220Ω ]──> Base
+ESP32 GPIO4 ──[ 220Ω ]──►|── IR LED ──── GND
+                       (anode)  (cathode)
+```
+
+**Option B — transistor driver (for longer / whole‑room range).**
+A bare GPIO can only push a few mA, which limits IR range. An NPN transistor
+lets the LED draw more current from the 5 V/3V3 rail so it beams further.
+
+```
+ESP32 GPIO4 ──[ 220Ω ]──► Base
                           NPN (2N2222)
-   Collector ──[ IR LED ]──┐
-                           │
-   Emitter ────────────────┴──── GND     (LED anode → 5V/3V3 through LED)
+  5V/3V3 ──[ IR LED ]──► Collector
+                         Emitter ──── GND
 ```
 
-Point the LED at the AC's IR receiver. Because IR is line‑of‑sight, mount the
-ESP32 where a normal remote would work.
+> ⚠️ **Learn from my mistake:** I first tried Option B and it wouldn't transmit
+> no matter what. The culprit was that my part was a **MOSFET, not an NPN
+> transistor** — different pinout and gate/base behaviour, so the LED never
+> switched. If you go the driver route, **double‑check the part number** (a
+> 2N2222 is NPN; a 2N7000/IRF‑series is a MOSFET and wires differently). If in
+> doubt, start with **Option A** — it's the fastest path to a working build.
+
+Because IR is line‑of‑sight, point the LED at the AC's IR receiver window and
+mount the ESP32 accordingly.
 
 ---
 
@@ -616,8 +703,11 @@ that don't exist yet. Current firmware checks existence first; configs are
 created on first save.
 
 **The AC ignores commands**
-IR is line‑of‑sight and needs range. Confirm the LED points at the AC's
-receiver, and drive it through a transistor rather than straight off the GPIO.
+IR is line‑of‑sight. Confirm the LED points at the AC's receiver window and is
+close enough — a directly‑wired LED (Option A) has limited range, so move the
+device nearer or switch to the transistor driver (Option B) for more distance.
+If you built the driver and get *nothing*, verify the part is actually an **NPN
+transistor, not a MOSFET**.
 
 ---
 
@@ -641,4 +731,14 @@ receiver, and drive it through a transistor rather than straight off the GPIO.
 - **Graceful degradation everywhere.** No Sinric keys → no cloud module. Bad
   flash volume → run without persistence instead of bricking. No clock yet →
   automations wait instead of firing at the wrong time.
+
+---
+
+## Credits
+
+Built by **Harshil Patel** out of curiosity to make a basic Samsung AC smart on a
+hobby budget. The firmware, web app, and integrations were developed with the
+help of **[Claude Code](https://claude.com/claude-code)** for coding, planning,
+and wiring up the cloud pieces. Fork it, build your own, and make your "dumb" AC
+smart for the price of a pizza. 🍕
 ```
