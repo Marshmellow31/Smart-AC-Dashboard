@@ -22,6 +22,11 @@ void WiFiManager::loop() {
     unsigned long now = millis();
     if (now - lastReconnectAttempt_ > kReconnectIntervalMs) {
       Serial.println("Wi-Fi disconnected. Retrying...");
+      // Drop any half-finished association before retrying — calling
+      // WiFi.begin() again while the driver is still mid-negotiation (common
+      // when the router itself is flapping, e.g. rebooting after a power
+      // outage) can wedge the ESP32 Wi-Fi stack instead of cleanly retrying.
+      WiFi.disconnect();
       connect();
       lastReconnectAttempt_ = now;
     }

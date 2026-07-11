@@ -109,9 +109,20 @@ void loop() {
   wifiManager.loop();
 
   static bool wasConnected = false;
+  static bool nameServicesStarted = false;
   bool nowConnected = wifiManager.isConnected();
   if (nowConnected && !wasConnected) {
-    startNameServices();
+    // mDNS/NetBIOS track the current IP automatically once registered, so
+    // this only needs to run on the very first connect. Re-running it on
+    // every reconnect (e.g. a router that flaps for a while after a power
+    // outage) repeatedly hits ESP32 mDNS's known end()/begin() leak and can
+    // starve heap for the web server while Sinric's lighter-weight socket
+    // keeps working — exactly the "cloud control works, local UI doesn't"
+    // failure mode.
+    if (!nameServicesStarted) {
+      startNameServices();
+      nameServicesStarted = true;
+    }
     timeManager.onWifiConnected();
     sinric.begin();
   }
