@@ -464,14 +464,14 @@ void WebServerManager::setupStaticRoutes() {
   // and gets a long cache lifetime since filenames don't change on update.
   server_.serveStatic("/style.css", LittleFS, "/style.css")
       .setTryGzipFirst(true)
-      .setCacheControl("max-age=604800");
+      .setCacheControl("no-cache");
   server_.serveStatic("/script.js", LittleFS, "/script.js")
       .setTryGzipFirst(true)
-      .setCacheControl("max-age=604800");
+      .setCacheControl("no-cache");
   server_.serveStatic("/", LittleFS, "/")
       .setDefaultFile("index.html")
       .setTryGzipFirst(true)
-      .setCacheControl("max-age=600");
+      .setCacheControl("no-cache");
 
   server_.onNotFound([](AsyncWebServerRequest* request) {
     request->send(404, "application/json", "{\"error\":\"Not found\"}");
