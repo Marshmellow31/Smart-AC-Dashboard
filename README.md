@@ -309,17 +309,17 @@ The ESP32 runs **two contexts that matter here**:
 
 ```mermaid
 sequenceDiagram
-    participant TCP as Async TCP task<br/>(ESPAsyncWebServer / Sinric)
-    participant State as Shared state<br/>(behind std::mutex)
-    participant Loop as Arduino loop()<br/>(main task)
-    participant HW as Hardware<br/>(IR LED, flash)
+    participant TCP as Async TCP task
+    participant State as Shared state
+    participant Loop as Main loop
+    participant HW as Hardware
 
     TCP->>State: mutate state under mutex
-    TCP->>State: raise dirty / sendPending flag
-    Note over TCP: NEVER touches IR or flash
+    TCP->>State: raise dirty flag
+    Note over TCP: never touches IR or flash
     Loop->>State: read flags under mutex
-    Loop->>HW: 🔴 IR send (bit‑banged 38 kHz)
-    Loop->>HW: 🔴 LittleFS write (persist)
+    Loop->>HW: IR send
+    Loop->>HW: flash write
 ```
 
 > **HTTP handlers and cloud callbacks run in the async TCP task. They may only
@@ -340,29 +340,30 @@ Follow a single tap — *"turn the AC on"* — end to end:
 ```mermaid
 sequenceDiagram
     autonumber
-    participant U as 📱 User
+    participant U as User
     participant JS as script.js
-    participant Web as WebServerManager<br/>(async task)
+    participant Web as WebServerManager
     participant Ctrl as AcController
-    participant Loop as loop() (main task)
-    participant IR as IR LED → AC
+    participant Loop as Main loop
+    participant IR as IR LED
     participant CB as Callbacks
 
     U->>JS: tap Power
-    JS->>Web: POST /api/power {"on":true}
-    Web->>Ctrl: apply(cmd, MANUAL, "web UI")
-    Note over Ctrl: check manual hold<br/>mutate state under mutex<br/>set sendPending_ / savePending_
+    JS->>Web: POST /api/power on:true
+    Web->>Ctrl: apply MANUAL web UI
+    Note over Ctrl: check manual hold, mutate state, set pending flags
     Ctrl-->>Web: return new state
-    Web-->>JS: 200 + /api/status JSON
+    Web-->>JS: 200 plus status JSON
     JS-->>U: UI updates immediately
 
-    loop every ~10 ms
-        Loop->>Ctrl: loop()
-        Ctrl->>IR: 🔴 transmit() if sendPending_
-        Ctrl->>CB: fire change callbacks
-        CB->>CB: automation.onExternalCommand() → cancels program
-        CB->>CB: sinric.pushState() → mirror to cloud
-        Ctrl->>Ctrl: persistState() if savePending_
+    rect rgb(30, 40, 55)
+    Note over Loop: runs continuously, about every 10ms
+    Loop->>Ctrl: loop tick
+    Ctrl->>IR: transmit if send pending
+    Ctrl->>CB: fire change callbacks
+    CB->>CB: automation cancels running program
+    CB->>CB: sinric mirrors state to cloud
+    Ctrl->>Ctrl: persist state if save pending
     end
 ```
 
