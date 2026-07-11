@@ -75,20 +75,18 @@ bool AcController::apply(const AcCommand& cmd, CmdSource source, const char* rea
     if (cmd.hasTemp) next.temp = constrain(cmd.temp, kAcMinTemp, kAcMaxTemp);
     if (cmd.hasFan) next.fan = cmd.fan;
 
-    // No-op commands from clouds/automation are dropped entirely: Sinric
-    // replays retained state on every connect and Firebase replays the node
-    // snapshot on every stream start — transmitting those would blast the AC
-    // with duplicate IR frames and set spurious holds. A MANUAL no-op still
-    // transmits: re-pressing the same setting is how users nudge an AC that
-    // missed a frame.
+    // No-op commands from the cloud/automation are dropped entirely: Sinric
+    // replays retained state on every connect — transmitting those would
+    // blast the AC with duplicate IR frames and set spurious holds. A MANUAL
+    // no-op still transmits: re-pressing the same setting is how users nudge
+    // an AC that missed a frame.
     bool changed = next.power != state_.power || next.mode != state_.mode ||
                    next.temp != state_.temp || next.fan != state_.fan;
     if (!changed && source != CmdSource::MANUAL) return true;
 
     state_ = next;
 
-    if (source == CmdSource::MANUAL || source == CmdSource::CLOUD ||
-        source == CmdSource::SINRIC) {
+    if (source == CmdSource::MANUAL || source == CmdSource::SINRIC) {
       overrideUntil_ = time(nullptr) + static_cast<time_t>(settings_.holdMinutes) * 60;
     }
 

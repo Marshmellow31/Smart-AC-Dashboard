@@ -145,8 +145,8 @@ void SinricManager::loop() {
 }
 
 void SinricManager::pushState(const ACState& s, CmdSource source) {
-  // Skip only the echo of our own commands — changes from Firebase (CLOUD)
-  // must still be mirrored here so Alexa/Google stay in sync.
+  // Skip the echo of our own commands; everything else (web UI, automation,
+  // timers) is mirrored so Alexa/Google stay in sync.
   if (!enabled_ || source == CmdSource::SINRIC) return;
   if (!SinricPro.isConnected()) return;
 

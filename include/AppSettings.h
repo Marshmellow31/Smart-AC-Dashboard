@@ -9,7 +9,7 @@ struct AppSettings {
   uint16_t holdMinutes = 120;      // manual-wins hold window for automations
   bool automationEnabled = true;   // master toggle for weekly schedules
   bool restoreOnBoot = false;      // re-send last state after a power cut
-  uint16_t acWatts = 1500;         // for the energy estimate
+  uint16_t acWatts = 1560;         // for the energy estimate
   float tariffPerKwh = 8.0f;       // ₹ per kWh
   uint16_t filterLimitHours = 200; // filter-clean reminder threshold
   uint8_t maxContinuousHours = 0;  // safety auto-off; 0 = disabled

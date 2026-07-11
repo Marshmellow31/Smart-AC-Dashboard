@@ -5,12 +5,33 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="theme-color" content="#0b0d12">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AC Control">
 <title>AC Control</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0d12'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%234fb0ff'%3E%E2%9D%84%3C/text%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="icons/apple-touch.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="toast" class="toast" role="alert" aria-live="assertive"></div>
+
+<!-- Blocks the UI on launch until the live device state has been fetched, so a
+     cached (PWA) shell can never be acted on before it has synced. -->
+<div id="syncGate" class="sync-gate visible" role="status" aria-live="polite">
+  <div class="sync-box">
+    <div id="syncSpinner" class="sync-spinner"></div>
+    <div id="syncIcon" class="sync-icon" hidden>
+      <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01"/><path d="M3 3l18 18"/>
+      </svg>
+    </div>
+    <div id="syncTitle" class="sync-title">Syncing with your AC…</div>
+    <div id="syncMsg" class="sync-msg">Fetching the current state.</div>
+    <button id="syncRetry" class="btn-primary" type="button" hidden>Retry</button>
+  </div>
+</div>
 
 <div class="shell">
   <header class="topbar">
@@ -18,13 +39,25 @@
       <h1>AC Control</h1>
       <span id="connDot" class="conn-dot" title="Connection status"></span>
     </div>
-    <nav class="tabbar" role="tablist">
-      <button class="tab" role="tab" data-tab="control" aria-selected="true">Control</button>
-      <button class="tab" role="tab" data-tab="automation" aria-selected="false">Automation</button>
-      <button class="tab" role="tab" data-tab="stats" aria-selected="false">Stats</button>
-      <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
-    </nav>
+    <div class="top-actions">
+      <button id="themeToggle" class="icon-btn" type="button" aria-label="Toggle light mode" title="Toggle theme">☾</button>
+      <nav class="tabbar" role="tablist">
+        <button class="tab" role="tab" data-tab="control" aria-selected="true">Control</button>
+        <button class="tab" role="tab" data-tab="automation" aria-selected="false">Automation</button>
+        <button class="tab" role="tab" data-tab="stats" aria-selected="false">Stats</button>
+        <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+      </nav>
+    </div>
   </header>
+
+  <div class="state-bar">
+    <div class="state-main">
+      <span id="stateDot" class="state-dot"></span>
+      <b id="stateText">Off</b>
+      <span id="stateSub" class="dim-13"></span>
+    </div>
+    <div class="state-next">Next:&nbsp;<b id="stateNext">—</b></div>
+  </div>
 
   <div id="autoStatus" class="status-strip"></div>
 
@@ -85,21 +118,13 @@
           </div>
         </section>
 
-        <section class="card fan-card">
-          <div class="dial" id="fanDial" style="--size:110px;--ring:14px" role="slider" tabindex="0"
-               aria-label="Fan speed" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0">
-            <div class="dial-inner"><span id="fanDialLabel" class="fan-dial-label">Auto</span></div>
-            <div class="dial-thumb"></div>
-          </div>
-          <div class="fan-side">
-            <h2 class="card-title">Fan speed</h2>
-            <div id="fanGrid" class="chip-row">
-              <button class="chip" data-fan="auto" aria-pressed="false">Auto</button>
-              <button class="chip" data-fan="low" aria-pressed="false">Low</button>
-              <button class="chip" data-fan="medium" aria-pressed="false">Medium</button>
-              <button class="chip" data-fan="high" aria-pressed="false">High</button>
-            </div>
-            <span class="faint-12">Turn the dial or tap a step</span>
+        <section class="card">
+          <h2 class="card-title">Fan speed</h2>
+          <div id="fanGrid" class="fan-segmented">
+            <button class="fan-seg" data-fan="auto" aria-pressed="false">Auto</button>
+            <button class="fan-seg" data-fan="low" aria-pressed="false">Low</button>
+            <button class="fan-seg" data-fan="medium" aria-pressed="false">Medium</button>
+            <button class="fan-seg" data-fan="high" aria-pressed="false">High</button>
           </div>
         </section>
 
@@ -114,6 +139,21 @@
   <!-- ============ AUTOMATION ============ -->
   <section id="tab-automation" class="tab-panel" data-panel="automation" hidden>
     <div class="grid">
+
+      <section class="card full-span">
+        <div class="card-head">
+          <h2 class="card-title">Next 24 hours</h2>
+          <span id="tlSummary" class="tl-summary"></span>
+        </div>
+        <div id="tlWrap" class="tl-wrap">
+          <div id="tlMarkers" class="tl-markers"></div>
+          <div id="tlTrack" class="tl-track"></div>
+          <div id="tlTicks" class="tl-ticks"></div>
+        </div>
+        <div id="tlNotes" class="tl-notes"></div>
+        <div id="tlTip" class="tl-tip" hidden></div>
+      </section>
+
       <section class="card timer-card">
         <h2 class="card-title" style="align-self:flex-start">Countdown timer</h2>
         <div class="dial" id="timerDial" style="--size:200px;--ring:20px" role="slider" tabindex="0"
@@ -149,7 +189,10 @@
             <button id="scheduleAdd" class="btn-ghost">+ Add</button>
           </div>
           <div id="scheduleList" class="row-list"></div>
-          <button id="scheduleSave" class="btn-primary" style="margin-top:14px">Save schedules</button>
+          <div id="scheduleSaveBar" class="save-bar" hidden>
+            <span class="dim-13">Unsaved changes</span>
+            <button id="scheduleSave" class="btn-primary">Save schedules</button>
+          </div>
         </section>
 
         <section class="card">
@@ -159,7 +202,10 @@
           </div>
           <div id="programList" class="row-list"></div>
           <p class="faint-12" style="margin-top:12px">A program runs its steps in order. Any manual command cancels it.</p>
-          <button id="programSave" class="btn-primary" style="margin-top:10px">Save programs</button>
+          <div id="programSaveBar" class="save-bar" hidden>
+            <span class="dim-13">Unsaved changes</span>
+            <button id="programSave" class="btn-primary">Save programs</button>
+          </div>
         </section>
       </div>
     </div>
@@ -168,19 +214,34 @@
   <!-- ============ STATS ============ -->
   <section id="tab-stats" class="tab-panel" data-panel="stats" hidden>
     <div class="grid">
-      <section class="card">
-        <h2 class="card-title">Usage &amp; energy</h2>
-        <div id="statCards" class="stat-grid"></div>
-        <div class="filter-block">
-          <div class="filter-row"><span>Filter</span><span id="filterText">&ndash;</span></div>
-          <div class="filter-track"><div id="filterFill" class="filter-fill" style="width:0%"></div></div>
-          <button id="filterReset" class="btn-ghost" style="align-self:flex-start">Reset filter counter</button>
-        </div>
-      </section>
-      <section class="card">
-        <h2 class="card-title">Event log</h2>
-        <div id="logBox" class="log-list"></div>
-      </section>
+      <div class="col-stack">
+        <section class="card">
+          <h2 class="card-title">Cost &amp; energy</h2>
+          <div id="statCards" class="stat-grid"></div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <h2 class="card-title">Daily on-time &mdash; last 14 days</h2>
+            <span id="chartMeta" class="faint-12"></span>
+          </div>
+          <div id="usageChart" class="chart"></div>
+          <div id="chartTip" class="tl-tip" hidden></div>
+        </section>
+      </div>
+      <div class="col-stack">
+        <section class="card">
+          <h2 class="card-title">Filter</h2>
+          <div class="filter-block" style="margin-top:0">
+            <div class="filter-row"><span>Runtime since last clean</span><span id="filterText">&ndash;</span></div>
+            <div class="filter-track"><div id="filterFill" class="filter-fill" style="width:0%"></div></div>
+            <button id="filterReset" class="btn-ghost" style="align-self:flex-start">Reset filter counter</button>
+          </div>
+        </section>
+        <section class="card">
+          <h2 class="card-title">Event log</h2>
+          <div id="logBox" class="log-list"></div>
+        </section>
+      </div>
     </div>
   </section>
 
@@ -191,23 +252,23 @@
         <h2 class="card-title">Behaviour</h2>
         <div class="settings-rows">
           <div class="settings-row">
-            <div class="col"><span class="label-16" style="font-size:14px;font-weight:500">Weekly schedules enabled</span><span class="hint">Run automations on schedule</span></div>
+            <div class="col"><span class="settings-label">Weekly schedules enabled</span><span class="hint">Master switch for scheduled automations</span></div>
             <button id="setAuto" class="switch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
           </div>
           <div class="settings-row">
-            <div class="col"><span class="label-16" style="font-size:14px;font-weight:500">Restore after power cut</span><span class="hint">Re-apply last state on boot</span></div>
+            <div class="col"><span class="settings-label">Restore after power cut</span><span class="hint">Re-apply last state on boot</span></div>
             <button id="setRestore" class="switch" role="switch" aria-checked="false"><span class="switch-knob"></span></button>
           </div>
+          <div class="number-row"><div class="col"><span>Manual hold (min)</span><span class="hint">How long manual changes pause schedules</span></div><input id="setHold" type="number" min="0" max="1440" class="in-num"></div>
+          <div class="number-row"><div class="col"><span>Safety auto-off (hours)</span><span class="hint">0 disables the limit</span></div><input id="setSafety" type="number" min="0" max="24" class="in-num"></div>
         </div>
       </section>
       <section class="card">
-        <h2 class="card-title">Numbers</h2>
+        <h2 class="card-title">Energy &amp; maintenance</h2>
         <div class="settings-rows">
-          <div class="number-row"><span>Manual hold (min)</span><input id="setHold" type="number" min="0" max="1440" class="in-num"></div>
-          <div class="number-row"><span>AC power (watts)</span><input id="setWatts" type="number" min="100" max="5000" class="in-num"></div>
-          <div class="number-row"><span>Tariff (&#8377;/kWh)</span><input id="setTariff" type="number" min="0" step="0.1" class="in-num"></div>
-          <div class="number-row"><span>Filter limit (hours)</span><input id="setFilter" type="number" min="10" max="2000" class="in-num"></div>
-          <div class="number-row"><span>Safety auto-off (hours, 0=off)</span><input id="setSafety" type="number" min="0" max="24" class="in-num"></div>
+          <div class="number-row"><div class="col"><span>AC power draw (watts)</span><span class="hint">Used for every kWh and cost estimate</span></div><input id="setWatts" type="number" min="100" max="5000" class="in-num"></div>
+          <div class="number-row"><div class="col"><span>Tariff (&#8377;/kWh)</span><span class="hint">Your electricity rate</span></div><input id="setTariff" type="number" min="0" step="0.1" class="in-num"></div>
+          <div class="number-row"><div class="col"><span>Filter limit (hours)</span><span class="hint">Reminder threshold for cleaning</span></div><input id="setFilter" type="number" min="10" max="2000" class="in-num"></div>
         </div>
         <button id="settingsSave" class="btn-primary" style="margin-top:14px">Save settings</button>
       </section>
@@ -216,5 +277,12 @@
 </div>
 
 <script src="script.js"></script>
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => { /* offline support is best-effort */ });
+    });
+  }
+</script>
 </body>
 </html>

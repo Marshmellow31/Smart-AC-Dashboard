@@ -20,7 +20,7 @@ class EventLog;
 // from the async TCP task corrupts the waveform. apply() only mutates state
 // and raises sendPending_.
 //
-// Override policy ("manual wins"): MANUAL and CLOUD commands start a hold of
+// Override policy ("manual wins"): MANUAL and SINRIC commands start a hold of
 // settings.holdMinutes during which AUTOMATION commands are rejected.
 // TIMER (user-set countdown) and SAFETY (auto-off) bypass the hold.
 class AcController {

@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ESPmDNS.h>
 #include <LittleFS.h>
+#include <NetBIOS.h>
 #include <ir_Samsung.h>
 
 #include "AcController.h"
@@ -9,7 +10,6 @@
 #include "ConfigStore.h"
 #include "EventLog.h"
 #include "SinricManager.h"
-#include "FirebaseManager.h"
 #include "StatsManager.h"
 #include "TimeManager.h"
 #include "WebServerManager.h"
@@ -29,9 +29,12 @@ AutomationEngine automation(acController, timeManager, eventLog, settings);
 StatsManager stats(acController, timeManager, eventLog, settings);
 SinricManager sinric(acController, eventLog);
 WebServerManager webServer(acController, automation, stats, settings, timeManager, eventLog);
-FirebaseManager firebase(acController, automation, stats, webServer, settings, eventLog);
 
-void startMdns() {
+// Two name services so the UI is reachable by name from any client:
+//  - mDNS  → http://ac-controller.local/  (Android, iOS, macOS, Linux)
+//  - NetBIOS → http://ac-controller/      (Windows, where mDNS is unreliable)
+// The raw IP printed on the serial console always works as a fallback.
+void startNameServices() {
   MDNS.end();
   if (MDNS.begin(kMdnsHostname)) {
     MDNS.addService("http", "tcp", 80);
@@ -39,6 +42,33 @@ void startMdns() {
   } else {
     Serial.println("mDNS responder failed to start.");
   }
+  NBNS.begin(kMdnsHostname);
+  Serial.printf("NetBIOS responder started: http://%s/\n", kMdnsHostname);
+}
+
+// Mount LittleFS, self-healing a bad volume instead of crashing on it.
+//
+// LittleFS.begin(true) formats on a mount *failure*, but on a freshly erased
+// flash it can report success while leaving a zero-capacity volume (block
+// count 0). The first write then divides by zero deep inside littlefs and
+// panics the CPU before setup() finishes — an unrecoverable boot loop. So we
+// treat a zero-byte mount as failure and force one clean reformat; if even
+// that fails we run without persistence rather than brick the device.
+bool mountFileSystem() {
+  bool mounted = LittleFS.begin(true);
+  if (mounted && LittleFS.totalBytes() == 0) {
+    Serial.println("LittleFS mounted empty — reformatting...");
+    LittleFS.end();
+    mounted = LittleFS.format() && LittleFS.begin(false);
+  }
+  if (mounted) {
+    Serial.printf("LittleFS ready: %u KB total, %u KB used\n",
+                  (unsigned)(LittleFS.totalBytes() / 1024),
+                  (unsigned)(LittleFS.usedBytes() / 1024));
+  } else {
+    Serial.println("LittleFS unavailable — configs will not persist this boot.");
+  }
+  return mounted;
 }
 
 void setup() {
@@ -48,12 +78,10 @@ void setup() {
 
   ac.begin();
 
-  if (!LittleFS.begin(true)) {
-    Serial.println("LittleFS mount failed!");
-  }
-  ConfigStore::begin();
-
-  {
+  // Only touch the filesystem once we know it's genuinely usable; a failed
+  // mount leaves every ConfigStore load/save to no-op safely.
+  if (mountFileSystem()) {
+    ConfigStore::begin();
     JsonDocument doc;
     if (ConfigStore::load(kSettingsPath, doc)) {
       settings.fromJson(doc.as<JsonObjectConst>());
@@ -65,11 +93,10 @@ void setup() {
   stats.begin();
 
   // External (manual/cloud/timer/safety) commands cancel a running program;
-  // every change is mirrored to Sinric and Firebase so clouds stay in sync.
+  // every change is mirrored to Sinric so clouds stay in sync.
   acController.addChangeCallback([](const ACState& s, CmdSource source) {
     automation.onExternalCommand(source);
     sinric.pushState(s, source);
-    firebase.pushState(s, source);
   });
 
   wifiManager.begin();
@@ -84,10 +111,9 @@ void loop() {
   static bool wasConnected = false;
   bool nowConnected = wifiManager.isConnected();
   if (nowConnected && !wasConnected) {
-    startMdns();
+    startNameServices();
     timeManager.onWifiConnected();
     sinric.begin();
-    firebase.begin();
   }
   wasConnected = nowConnected;
 
@@ -96,7 +122,6 @@ void loop() {
   automation.loop();
   stats.loop();
   sinric.loop();
-  firebase.loop();
   webServer.loop();
 
   delay(10);

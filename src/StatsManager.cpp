@@ -119,35 +119,45 @@ void StatsManager::toJson(JsonObject obj) const {
   std::lock_guard<std::mutex> lock(mutex_);
 
   char today[11] = "";
+  char weekStart[11] = "";  // 6 days ago → rolling 7-day window incl. today
   char month[8] = "";
   struct tm lt;
   if (time_.localTm(lt)) {
     strftime(today, sizeof(today), "%Y-%m-%d", &lt);
     strftime(month, sizeof(month), "%Y-%m", &lt);
+    time_t wk = time_.now() - 6 * 24 * 3600;
+    struct tm wt;
+    localtime_r(&wk, &wt);
+    strftime(weekStart, sizeof(weekStart), "%Y-%m-%d", &wt);
   }
 
-  uint32_t todaySec = 0, monthSec = 0;
+  uint32_t todaySec = 0, weekSec = 0, monthSec = 0;
   JsonArray daysArr = obj["days"].to<JsonArray>();
   for (const auto& d : days_) {
+    // ISO dates compare correctly as strings.
     if (strcmp(d.date, today) == 0) todaySec = d.onSeconds;
-    if (strncmp(d.date, month, strlen(month)) == 0 && month[0] != '\0') {
+    if (weekStart[0] != '\0' && strcmp(d.date, weekStart) >= 0) {
+      weekSec += d.onSeconds;
+    }
+    if (month[0] != '\0' && strncmp(d.date, month, strlen(month)) == 0) {
       monthSec += d.onSeconds;
     }
     JsonObject o = daysArr.add<JsonObject>();
     o["date"] = d.date;
     o["onMinutes"] = d.onSeconds / 60;
     o["kwh"] = d.onSeconds * kwhPerSecond;
+    o["cost"] = d.onSeconds * kwhPerSecond * tariff;
   }
 
-  JsonObject t = obj["today"].to<JsonObject>();
-  t["onMinutes"] = todaySec / 60;
-  t["kwh"] = todaySec * kwhPerSecond;
-  t["cost"] = todaySec * kwhPerSecond * tariff;
-
-  JsonObject m = obj["month"].to<JsonObject>();
-  m["onMinutes"] = monthSec / 60;
-  m["kwh"] = monthSec * kwhPerSecond;
-  m["cost"] = monthSec * kwhPerSecond * tariff;
+  auto period = [&](const char* key, uint32_t seconds) {
+    JsonObject p = obj[key].to<JsonObject>();
+    p["onMinutes"] = seconds / 60;
+    p["kwh"] = seconds * kwhPerSecond;
+    p["cost"] = seconds * kwhPerSecond * tariff;
+  };
+  period("today", todaySec);
+  period("week", weekSec);
+  period("month", monthSec);
 
   JsonObject f = obj["filter"].to<JsonObject>();
   f["hours"] = filterSeconds_ / 3600;

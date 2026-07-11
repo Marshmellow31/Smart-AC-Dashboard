@@ -59,7 +59,7 @@ struct CountdownTimer {
 // Interaction rules (deterministic on purpose):
 //  - Weekly schedules are skipped while a program runs or a manual hold is
 //    active (the skip is logged).
-//  - Any MANUAL/CLOUD/TIMER/SAFETY command cancels a running program.
+//  - Any MANUAL/SINRIC/TIMER/SAFETY command cancels a running program.
 //  - Countdown timers and program steps bypass the manual hold (a program
 //    can only be running if no hold is active — starting one clears it).
 class AutomationEngine {
@@ -67,7 +67,7 @@ class AutomationEngine {
   static constexpr size_t kMaxSlots = 16;
   static constexpr size_t kMaxPrograms = 10;
   static constexpr size_t kMaxSteps = 20;
-  static constexpr size_t kMaxTimers = 4;
+  static constexpr size_t kMaxTimers = 10;
 
   AutomationEngine(AcController& controller, TimeManager& time, EventLog& log,
                    AppSettings& settings);

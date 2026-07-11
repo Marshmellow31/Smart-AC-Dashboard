@@ -1,0 +1,12 @@
+# Custom 4 MB partition table for the AC controller.
+#
+# The stock min_spiffs layout reserves two 1.9 MB OTA app slots (this project
+# does not use OTA) and leaves only ~128 KB for the filesystem — which the web
+# UI fills completely, leaving no room for the /cfg config files and crashing
+# littlefs on the first mkdir. A single 2.5 MB app slot frees 1.4 MB for the
+# filesystem instead: plenty for the UI plus all persisted config/state/stats.
+#
+# Name,     Type, SubType,  Offset,    Size,      Flags
+nvs,        data, nvs,      0x9000,    0x5000,
+app0,       app,  factory,  0x10000,   0x280000,
+spiffs,     data, spiffs,   0x290000,  0x170000,

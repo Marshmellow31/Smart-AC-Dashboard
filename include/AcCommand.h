@@ -6,17 +6,16 @@
 #include "ACState.h"
 
 // Who asked for a state change. The override policy in AcController keys off
-// this: MANUAL/CLOUD/SINRIC set a hold that blocks AUTOMATION; TIMER/SAFETY
+// this: MANUAL/SINRIC set a hold that blocks AUTOMATION; TIMER/SAFETY
 // bypass the hold (user-initiated / protective); BOOT is the state restore;
 // SYSTEM is for log entries that aren't commands (NTP sync, boot, etc.).
-// CLOUD = Firebase, SINRIC = Sinric Pro — kept distinct so each cloud bridge
-// can skip echoing its own commands back while still mirroring the other's.
-enum class CmdSource : uint8_t { MANUAL, CLOUD, SINRIC, AUTOMATION, TIMER, SAFETY, BOOT, SYSTEM };
+// SINRIC (the Alexa/Google Home bridge) is kept distinct from MANUAL so the
+// bridge can skip echoing its own commands back to the cloud.
+enum class CmdSource : uint8_t { MANUAL, SINRIC, AUTOMATION, TIMER, SAFETY, BOOT, SYSTEM };
 
 inline const char* cmdSourceToString(CmdSource s) {
   switch (s) {
     case CmdSource::MANUAL:     return "manual";
-    case CmdSource::CLOUD:      return "cloud";
     case CmdSource::SINRIC:     return "sinric";
     case CmdSource::AUTOMATION: return "automation";
     case CmdSource::TIMER:      return "timer";

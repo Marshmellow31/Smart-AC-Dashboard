@@ -385,9 +385,8 @@ void AutomationEngine::tickSchedules(time_t now, const struct tm& lt) {
 }
 
 void AutomationEngine::onExternalCommand(CmdSource source) {
-  if (source != CmdSource::MANUAL && source != CmdSource::CLOUD &&
-      source != CmdSource::SINRIC && source != CmdSource::TIMER &&
-      source != CmdSource::SAFETY) {
+  if (source != CmdSource::MANUAL && source != CmdSource::SINRIC &&
+      source != CmdSource::TIMER && source != CmdSource::SAFETY) {
     return;
   }
   std::lock_guard<std::mutex> lock(mutex_);
@@ -654,7 +653,7 @@ bool AutomationEngine::addTimer(uint16_t minutes, const AcCommand& action, Strin
   }
   std::lock_guard<std::mutex> lock(mutex_);
   if (timers_.size() >= kMaxTimers) {
-    err = "too many timers (max 4)";
+    err = "too many timers (max 10)";
     return false;
   }
   CountdownTimer t;
