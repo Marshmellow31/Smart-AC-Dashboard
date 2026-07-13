@@ -408,7 +408,8 @@ void AutomationEngine::tickSchedules(time_t now, const struct tm& lt) {
 
 void AutomationEngine::onExternalCommand(CmdSource source) {
   if (source != CmdSource::MANUAL && source != CmdSource::SINRIC &&
-      source != CmdSource::TIMER && source != CmdSource::SAFETY) {
+      source != CmdSource::HOMEKIT && source != CmdSource::TIMER &&
+      source != CmdSource::SAFETY) {
     return;
   }
   std::lock_guard<std::mutex> lock(mutex_);

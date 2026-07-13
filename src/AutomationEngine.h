@@ -75,8 +75,9 @@ struct CountdownTimer {
 // are thread-safe so the async HTTP task can call them directly.
 //
 // Interaction rules (deterministic on purpose):
-//  - Weekly schedules are skipped while a program runs or a manual hold is
-//    active (the skip is logged).
+//  - Weekly schedules are skipped while a program runs. During a manual hold
+//    they are skipped too, EXCEPT pure power-off schedules — an auto-off
+//    always fires (the hold is asymmetric, see AcController).
 //  - Any MANUAL/SINRIC/TIMER/SAFETY command cancels a running program.
 //  - Countdown timers and program steps bypass the manual hold (a program
 //    can only be running if no hold is active — starting one clears it).

@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23000000'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%230A84FF'%3E%E2%9D%84%3C/text%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="icons/apple-touch.png">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <div id="toast" class="toast" role="alert" aria-live="assertive"></div>
@@ -136,6 +136,20 @@
         </div>
 
         <div class="secondary-block">
+          <h2 class="card-title">Features</h2>
+          <div id="featureGrid" class="feature-grid">
+            <button class="feat-btn" data-feat="swing" aria-pressed="false">Swing</button>
+            <button class="feat-btn" data-feat="turbo" aria-pressed="false">Turbo</button>
+            <button class="feat-btn" data-feat="quiet" aria-pressed="false">Quiet</button>
+            <button class="feat-btn" data-feat="econo" aria-pressed="false">Smart Saver</button>
+            <button class="feat-btn" data-feat="clean" aria-pressed="false">Auto Clean</button>
+            <button class="feat-btn" data-feat="ion" aria-pressed="false">Purify</button>
+            <button class="feat-btn" data-feat="display" aria-pressed="false">Display</button>
+            <button class="feat-btn" data-feat="beep" aria-pressed="false">Beep</button>
+          </div>
+        </div>
+
+        <div class="secondary-block">
           <h2 class="card-title">Presets</h2>
           <div id="presetButtons" class="preset-grid"></div>
         </div>
@@ -149,7 +163,7 @@
 
       <section class="card full-span">
         <div class="card-head">
-          <h2 class="card-title">Next 24 hours</h2>
+          <h2 class="card-title" id="tlTitle">Next 24 hours</h2>
           <span id="tlSummary" class="tl-summary"></span>
         </div>
         <div id="tlWrap" class="tl-wrap">
@@ -164,10 +178,10 @@
       <section class="card timer-card">
         <h2 class="card-title" style="align-self:flex-start">Countdown timer</h2>
         <div class="dial" id="timerDial" style="--size:200px;--ring:20px" role="slider" tabindex="0"
-             aria-label="Timer minutes" aria-valuemin="5" aria-valuemax="240" aria-valuenow="60">
+             aria-label="Timer minutes" aria-valuemin="5" aria-valuemax="720" aria-valuenow="60">
           <div class="dial-inner">
-            <div class="dial-readout"><span id="timerMin">60</span><span class="dim-16">min</span></div>
-            <span class="faint-12">5&ndash;240 &middot; drag to set</span>
+            <div class="dial-readout"><span id="timerMin">1</span><span id="timerUnit" class="dim-16">h</span></div>
+            <span class="faint-12">5 min &ndash; 12 h &middot; drag to set</span>
           </div>
           <div class="dial-thumb"></div>
         </div>
@@ -323,7 +337,7 @@
   </section>
 </div>
 
-<script src="script.js?v=3"></script>
+<script src="script.js?v=4"></script>
 <script>
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {

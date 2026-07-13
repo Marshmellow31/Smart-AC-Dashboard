@@ -82,6 +82,12 @@ void WebServerManager::sendStatus(AsyncWebServerRequest* request) {
   doc["temp"] = s.temp;
   doc["fan"] = fanSpeedToString(s.fan);
 
+  bool* fields[AcCommand::kFeatureCount];
+  featureFieldsOf(s, fields);
+  for (size_t i = 0; i < AcCommand::kFeatureCount; i++) {
+    doc[kFeatureKeys[i]] = *fields[i];
+  }
+
   bool timeValid = time_.isTimeValid();
   doc["timeValid"] = timeValid;
   if (timeValid) {
@@ -107,6 +113,23 @@ void WebServerManager::setupControlRoutes() {
   server_.on("/api/status", HTTP_GET, [this](AsyncWebServerRequest* request) {
     sendStatus(request);
   });
+
+  // Generic partial-state endpoint: accepts any AcCommand JSON — power/temp/
+  // mode/fan plus the feature toggles (swing/turbo/quiet/econo/clean/ion/
+  // display/beep). The single-field endpoints below predate it and remain
+  // for compatibility (and Siri shortcuts).
+  auto* setHandler = new AsyncCallbackJsonWebHandler(
+      "/api/set", [this](AsyncWebServerRequest* request, JsonVariant& json) {
+        AcCommand cmd;
+        String err;
+        if (!acCommandFromJson(json.as<JsonObjectConst>(), cmd, err)) {
+          sendError(request, 400, err);
+          return;
+        }
+        controller_.apply(cmd, CmdSource::MANUAL, "web UI");
+        sendStatus(request);
+      });
+  server_.addHandler(setHandler);
 
   auto* powerHandler = new AsyncCallbackJsonWebHandler(
       "/api/power", [this](AsyncWebServerRequest* request, JsonVariant& json) {

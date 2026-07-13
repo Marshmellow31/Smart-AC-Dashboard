@@ -22,6 +22,8 @@
   const MAX_TEMP = 30;
   const MODES = ["cool", "dry", "fan", "auto", "heat"];
   const FAN_ORDER = ["auto", "low", "medium", "high"];
+  // Remote feature toggles, mirrored 1:1 with the firmware's kFeatureKeys.
+  const FEATURE_KEYS = ["swing", "turbo", "quiet", "econo", "clean", "ion", "display", "beep"];
   const FAN_LABELS = ["Auto", "Low", "Medium", "High"];
   const DAY_NAMES = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
   const TABS = ["control", "automation", "stats", "settings"];
@@ -46,10 +48,10 @@
     "syncGate", "syncSpinner", "syncIcon", "syncTitle", "syncMsg", "syncRetry",
     "stateDot", "stateText", "stateSub", "stateNext",
     "powerToggle", "powerState", "tempDial", "tempValue", "tempModeLabel",
-    "tempDown", "tempUp", "modeGrid", "fanGrid",
+    "tempDown", "tempUp", "modeGrid", "fanGrid", "featureGrid",
     "presetButtons",
-    "tlSummary", "tlWrap", "tlMarkers", "tlTrack", "tlTicks", "tlNotes", "tlTip",
-    "timerDial", "timerMin", "timerOffSeg", "timerOnSeg", "timerOnOpts",
+    "tlTitle", "tlSummary", "tlWrap", "tlMarkers", "tlTrack", "tlTicks", "tlNotes", "tlTip",
+    "timerDial", "timerMin", "timerUnit", "timerOffSeg", "timerOnSeg", "timerOnOpts",
     "timerTempDown", "timerTempValue", "timerTempUp", "timerAdd", "timerList",
     "scheduleAdd", "scheduleList", "scheduleSave", "scheduleSaveBar",
     "programAdd", "programList", "programSave", "programSaveBar",
@@ -177,8 +179,12 @@
   const DIAL_SWEEP = 300;                     // degrees of travel
   const DIAL_START = -(DIAL_SWEEP / 2);       // thumb angle at min (-150°)
 
-  function makeDial(node, { min, max, step, get, set, commit }) {
-    const frac = (v) => (v - min) / (max - min);
+  // Optional non-linear dials: toFrac/fromFrac map value↔sweep-fraction (both
+  // or neither), snap(value) replaces uniform step rounding, stepAt(value,
+  // dir) sizes keyboard steps. Defaults reproduce the linear uniform dial.
+  function makeDial(node, { min, max, step, get, set, commit, toFrac, fromFrac, snap, stepAt }) {
+    const frac = toFrac || ((v) => (v - min) / (max - min));
+    const clampSnap = snap || ((v) => Math.max(min, Math.min(max, Math.round(v / step) * step)));
     function paint(v) {
       const deg = DIAL_SWEEP * Math.max(0, Math.min(1, frac(v)));
       node.style.setProperty("--deg", deg + "deg");
@@ -192,7 +198,8 @@
       // there (the conic-gradient's "from 210deg", measured from 12 o'clock).
       a = (a - 120 + 360) % 360;
       if (a > DIAL_SWEEP) a = a > DIAL_SWEEP + (360 - DIAL_SWEEP) / 2 ? 0 : DIAL_SWEEP;
-      return Math.round((min + (a / DIAL_SWEEP) * (max - min)) / step) * step;
+      const f = a / DIAL_SWEEP;
+      return clampSnap(fromFrac ? fromFrac(f) : min + f * (max - min));
     }
     node.addEventListener("pointerdown", (e) => {
       node.setPointerCapture(e.pointerId);
@@ -203,9 +210,11 @@
     });
     node.addEventListener("keydown", (e) => {
       let v = get();
-      if (e.key === "ArrowRight" || e.key === "ArrowUp") v = Math.min(max, v + step);
-      else if (e.key === "ArrowLeft" || e.key === "ArrowDown") v = Math.max(min, v - step);
-      else return;
+      const dir = (e.key === "ArrowRight" || e.key === "ArrowUp") ? 1
+                : (e.key === "ArrowLeft" || e.key === "ArrowDown") ? -1 : 0;
+      if (!dir) return;
+      const s = stepAt ? stepAt(v, dir) : step;
+      v = clampSnap(v + dir * s);
       e.preventDefault();
       set(v); paint(v); commit(v);
     });
@@ -261,6 +270,7 @@
 
   function renderControls(s) {
     app.state = { power: s.power, mode: s.mode, temp: s.temp, fan: s.fan };
+    FEATURE_KEYS.forEach((k) => { app.state[k] = !!s[k]; });
     tempDraft = s.temp;
 
     applyAccent(s.mode, s.power);
@@ -281,6 +291,9 @@
     });
     el.fanGrid.querySelectorAll(".fan-seg").forEach((btn) => {
       btn.setAttribute("aria-pressed", String(btn.dataset.fan === s.fan));
+    });
+    el.featureGrid.querySelectorAll(".feat-btn").forEach((btn) => {
+      btn.setAttribute("aria-pressed", String(!!app.state[btn.dataset.feat]));
     });
 
     // Persistent state summary bar.
@@ -334,6 +347,16 @@
     runOptimistic({ ...app.state, fan: btn.dataset.fan },
         [...el.fanGrid.querySelectorAll(".fan-seg")], "/api/fan", { speed: btn.dataset.fan });
   });
+  el.featureGrid.addEventListener("click", (evt) => {
+    const btn = evt.target.closest(".feat-btn");
+    if (!btn) return;
+    const key = btn.dataset.feat;
+    const next = { ...app.state, [key]: !app.state[key] };
+    // The AC treats turbo/quiet as mutually exclusive — mirror the firmware.
+    if (key === "turbo" && next.turbo) next.quiet = false;
+    if (key === "quiet" && next.quiet) next.turbo = false;
+    runOptimistic(next, [btn], "/api/set", { [key]: next[key] });
+  });
 
   // Presets
 
@@ -371,7 +394,7 @@
       noteworthy = true;
     }
     if (st.override && st.override.active) {
-      rows.push(`<div>Manual hold active until <b>${fmtDayTime(st.override.until)}</b> (schedules paused) <button class="btn-ghost" id="clearHold">Resume automations</button></div>`);
+      rows.push(`<div>Manual hold until <b>${fmtDayTime(st.override.until)}</b> — automations won't turn the AC on (auto-off still works) <button class="btn-ghost" id="clearHold">Resume automations</button></div>`);
       noteworthy = true;
     }
     if (st.program && st.program.active) {
@@ -415,10 +438,57 @@
   let timerOn = false;
   let timerTempDraft = 24;
 
+  // Non-linear 5min–12h dial: fine 5-min steps get half the sweep (up to 2h),
+  // then 15-min steps to 6h, then 30-min steps to 12h — precise where timers
+  // are usually set, but the whole firmware range stays reachable by drag.
+  const TIMER_BANDS = [
+    { upTo: 120, step: 5, fracEnd: 0.5 },
+    { upTo: 360, step: 15, fracEnd: 0.8 },
+    { upTo: 720, step: 30, fracEnd: 1.0 },
+  ];
+  function timerToFrac(v) {
+    let lo = 5, fLo = 0;
+    for (const b of TIMER_BANDS) {
+      if (v <= b.upTo) return fLo + (v - lo) / (b.upTo - lo) * (b.fracEnd - fLo);
+      lo = b.upTo; fLo = b.fracEnd;
+    }
+    return 1;
+  }
+  function timerFromFrac(f) {
+    let lo = 5, fLo = 0;
+    for (const b of TIMER_BANDS) {
+      if (f <= b.fracEnd) return lo + (f - fLo) / (b.fracEnd - fLo) * (b.upTo - lo);
+      lo = b.upTo; fLo = b.fracEnd;
+    }
+    return 720;
+  }
+  function timerSnap(v) {
+    v = Math.max(5, Math.min(720, v));
+    const step = v <= 120 ? 5 : v <= 360 ? 15 : 30;
+    return Math.max(5, Math.round(v / step) * step);
+  }
+  function timerStepAt(v, dir) {
+    const probe = v + dir;  // step size of the band we're stepping into
+    return probe <= 120 ? 5 : probe <= 360 ? 15 : 30;
+  }
+  function paintTimerReadout(v) {
+    if (v < 60) {
+      el.timerMin.textContent = v;
+      el.timerUnit.textContent = "min";
+    } else {
+      const h = Math.floor(v / 60), m = v % 60;
+      el.timerMin.textContent = m ? `${h}:${String(m).padStart(2, "0")}` : `${h}`;
+      el.timerUnit.textContent = "h";
+    }
+  }
+  paintTimerReadout(timerMinDraft);
+
   makeDial(el.timerDial, {
-    min: 5, max: 240, step: 5,
+    min: 5, max: 720,
+    toFrac: timerToFrac, fromFrac: timerFromFrac,
+    snap: timerSnap, stepAt: timerStepAt,
     get: () => timerMinDraft,
-    set: (v) => { timerMinDraft = v; el.timerMin.textContent = v; },
+    set: (v) => { timerMinDraft = v; paintTimerReadout(v); },
     commit: (v) => { timerMinDraft = v; },
   });
 
@@ -997,9 +1067,12 @@
       let next = cur;
 
       if (e.kind === "schedule") {
+        // The hold is asymmetric (mirrors AcController): pure power-off
+        // schedules always fire, everything else waits out the hold.
+        const isOff = e.cmd.power === false;
         if (!st.automationEnabled) reason = "schedules disabled";
         else if (progActive) reason = "skipped: program running";
-        else if (holdUntil && e.t < holdUntil) reason = "skipped: manual hold";
+        else if (holdUntil && e.t < holdUntil && !isOff) reason = "skipped: manual hold";
         else { next = cmdApply(cur, e.cmd); applied = true; }
       } else if (e.kind === "timer") {
         next = cmdApply(cur, e.cmd);
@@ -1053,7 +1126,28 @@
     }
 
     const sim = simulateNext24h();
-    const pct = (t) => ((t - sim.t0) / DAY_SECONDS * 100);
+
+    // Fit the visible window to what's actually scheduled instead of always
+    // stretching 24h: pad the last event by ~15%, round up to a half hour,
+    // clamp to [2h, 24h]. No events at all → keep the full day.
+    let lastEvent = sim.t0;
+    for (const m of sim.markers) lastEvent = Math.max(lastEvent, m.t);
+    for (const seg of sim.segments) {
+      if (seg.start > sim.t0) lastEvent = Math.max(lastEvent, seg.start);
+    }
+    let windowSec = DAY_SECONDS;
+    if (lastEvent > sim.t0) {
+      windowSec = Math.ceil((lastEvent - sim.t0) * 1.15 / 1800) * 1800;
+      windowSec = Math.max(2 * 3600, Math.min(DAY_SECONDS, windowSec));
+    }
+    const tEnd = sim.t0 + windowSec;
+    // Tick/gridline spacing: smallest interval that keeps ≤6 divisions.
+    const tickSec = [1800, 3600, 7200, 10800, 14400, 21600].find((iv) => windowSec / iv <= 6) || 21600;
+    if (el.tlTitle) {
+      el.tlTitle.textContent = windowSec === DAY_SECONDS ? "Next 24 hours" : `Next ${fmtDur(windowSec)}`;
+    }
+
+    const pct = (t) => ((t - sim.t0) / windowSec * 100);
 
     // Feed the persistent state bar: the next projected change of state.
     if (el.stateNext) {
@@ -1063,13 +1157,16 @@
           : "—";
     }
 
-    // Track: gridlines + ON segments + "now" cursor.
+    // Track: gridlines + ON segments + "now" cursor, clipped to the window.
     let html = "";
-    for (let h = 4; h < 24; h += 4) html += `<div class="tl-gridline" style="left:${(h / 24 * 100).toFixed(2)}%"></div>`;
+    for (let t = tickSec; t < windowSec; t += tickSec) {
+      html += `<div class="tl-gridline" style="left:${(t / windowSec * 100).toFixed(2)}%"></div>`;
+    }
     for (const seg of sim.segments) {
-      if (!seg.power) continue;
+      if (!seg.power || seg.start >= tEnd) continue;
+      const segEnd = Math.min(seg.end, tEnd);
       const left = pct(seg.start);
-      const width = pct(seg.end) - left;
+      const width = pct(segEnd) - left;
       const color = stepColor({ on: true, temp: seg.temp, mode: seg.mode });
       const tempT = (seg.temp - MIN_TEMP) / (MAX_TEMP - MIN_TEMP);
       const label = width > 4 ? `${seg.temp}°` : "";
@@ -1085,20 +1182,24 @@
       return `<span class="tl-marker${m.applied ? "" : " skipped"}" data-tip="${esc(tip)}" style="left:${pct(m.t).toFixed(2)}%">${MARKER_GLYPHS[m.kind] || "•"}</span>`;
     }).join("");
 
-    // Ticks: "Now" then the clock time every 4 hours.
+    // Ticks: "Now", then the clock time at each division.
     let ticks = `<span class="tl-tick first" style="left:0">Now</span>`;
-    for (let h = 4; h <= 24; h += 4) {
-      ticks += `<span class="tl-tick${h === 24 ? " last" : ""}" style="left:${(h / 24 * 100).toFixed(2)}%">${fmtClock(sim.t0 + h * 3600)}</span>`;
+    for (let t = tickSec; t <= windowSec; t += tickSec) {
+      ticks += `<span class="tl-tick${t === windowSec ? " last" : ""}" style="left:${(t / windowSec * 100).toFixed(2)}%">${fmtClock(sim.t0 + t)}</span>`;
     }
     el.tlTicks.innerHTML = ticks;
 
-    el.tlSummary.innerHTML = sim.onSeconds > 0
-        ? `AC on <b>${fmtHours(sim.onSeconds)}</b> · ${sim.kwh.toFixed(1)} kWh · ≈<b>${money(sim.cost)}</b>`
+    // Summary over the visible window, so the numbers match the bar.
+    const winOnSec = sim.segments.reduce((acc, s) =>
+        acc + (s.power && s.start < tEnd ? Math.min(s.end, tEnd) - s.start : 0), 0);
+    const winKwh = winOnSec / 3600 * (app.settings.acWatts || 0) / 1000;
+    el.tlSummary.innerHTML = winOnSec > 0
+        ? `AC on <b>${fmtHours(winOnSec)}</b> · ${winKwh.toFixed(1)} kWh · ≈<b>${money(winKwh * (app.settings.tariffPerKwh || 0))}</b>`
         : `AC stays off`;
 
     const notes = [];
     if (st.override && st.override.active) {
-      notes.push(`<div class="warn">Manual hold until ${fmtClock(st.override.until)} — schedules before then are skipped.</div>`);
+      notes.push(`<div class="warn">Manual hold until ${fmtClock(st.override.until)} — schedules that would turn the AC on are skipped until then (turn-off still fires).</div>`);
     }
     if (!st.automationEnabled && app.schedules.some((s) => s.enabled)) {
       notes.push(`<div class="warn">Weekly schedules are disabled in Settings, so none of them will fire.</div>`);

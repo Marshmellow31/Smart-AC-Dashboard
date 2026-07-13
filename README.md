@@ -80,14 +80,15 @@ AC smart for roughly **₹600–700**. Full parts list, wiring, and photos are i
 
 | Capability | Description |
 |------------|-------------|
-| **Web UI** | Mobile‑first control panel served from flash. Power / temperature / mode / fan, plus one‑tap presets ("scenes"). Installable to the home screen as a PWA that works offline. |
+| **Web UI** | Responsive control panel served from flash (phone‑ and desktop‑friendly). Power / temperature / mode / fan, the full remote feature set (swing, turbo, quiet, smart‑saver, auto‑clean, purify, display, beep), plus one‑tap presets ("scenes"). Installable to the home screen as a PWA that works offline. |
 | **Automations** | Three complementary types — **countdown timers**, **weekly schedules**, and multi‑step **programs** (e.g. *"on 60 m @ 24°, then 25°, then 26°, then off"* — sleep curves and interval cycling). |
 | **Live 24‑hour timeline** | The UI projects the next 24 h of schedules, timers, and the running program client‑side, showing exactly when the AC will switch and what it will cost. |
 | **Energy stats** | Daily commanded on‑time for the last 30 days with kWh / cost estimates for today, the last 7 days, and the month. |
 | **Filter reminder** | Counts total on‑hours and nags after a configurable threshold. |
 | **Safety auto‑off** | Optional cut‑off after N continuous on‑hours. |
 | **Event log** | In‑RAM ring buffer of every command and automation decision — including *skipped* ones and *why*. |
-| **Voice / cloud** | Optional Sinric Pro bridge → Alexa, Google Home, and the Sinric app. |
+| **Voice / cloud** | Optional Sinric Pro bridge → Alexa, Google Home, and the Sinric app — with stale‑replay protection so reconnects can't ghost‑control the AC. |
+| **Apple HomeKit** | Native HomeKit accessory (HomeSpan) — AC tile with power/mode/temp/fan/swing plus Turbo, Quiet, and Purify switches in the Home app. Works fully offline, no cloud. |
 | **Resilience** | State, schedules, programs, presets, and stats persist to LittleFS; programs resume after a reboot; optional restore‑after‑power‑cut. |
 
 ---
@@ -220,9 +221,11 @@ without an account.
 ```c
 #define WIFI_SSID       "your-wifi"
 #define WIFI_PASSWORD   "your-password"
-#define SINRIC_APP_KEY       ""   // optional
-#define SINRIC_APP_SECRET    ""   // optional
-#define SINRIC_AC_DEVICE_ID  ""   // optional
+#define SINRIC_APP_KEY        ""  // optional — Alexa / Google Home
+#define SINRIC_APP_SECRET     ""  // optional
+#define SINRIC_AC_DEVICE_ID   ""  // optional
+#define SINRIC_FAN_DEVICE_ID  ""  // optional — gives Google Home a fan-speed control
+#define HOMEKIT_PAIRING_CODE  ""  // optional — empty uses HomeSpan's default 466-37-726
 ```
 
 ### 2. Flash firmware **and** filesystem
@@ -297,8 +300,8 @@ flowchart TD
 | **AutomationEngine** | Evaluates timers, weekly schedules, and step programs once a second. Deterministic interaction rules (below). |
 | **StatsManager** | Derives on‑time / energy / cost purely from *commanded* state; runs the filter counter and safety auto‑off. |
 | **TimeManager** | SNTP time in IST. Automations block until the first sync lands. |
-| **WiFiManager** | STA connection with a 5 s reconnect loop. |
-| **SinricManager** | Optional cloud bridge; disables itself cleanly if credentials are empty. |
+| **HomeKitManager** | Native Apple HomeKit accessory (HomeSpan). Also owns Wi‑Fi (connect + backoff reconnect) and mDNS, since HomeSpan manages both internally. |
+| **SinricManager** | Optional cloud bridge; disables itself cleanly if credentials are empty. Ignores stale command replays for 5 s after every reconnect and re‑pushes the real state to the cloud. |
 | **WebServerManager** | REST API + static frontend (ESPAsyncWebServer). Also owns presets/scenes. |
 | **EventLog** | 50‑entry RAM ring buffer of commands and automation decisions. |
 | **ConfigStore** | Load/save ArduinoJson docs under `/cfg/` on LittleFS. |
@@ -437,12 +440,17 @@ flowchart LR
 
 | Source | Effect |
 |--------|--------|
-| `MANUAL` (web) / `SINRIC` (cloud) | Starts a **hold** of `holdMinutes` (default 120) during which weekly schedules are rejected. Rationale: if you reach for the phone or ask Alexa, you mean it — don't let a schedule stomp you 5 minutes later. |
+| `MANUAL` (web) / `SINRIC` (cloud) / `HOMEKIT` (Apple Home) | Starts a **hold** of `holdMinutes` (default 120) during which automations may not change the AC. Rationale: if you reach for the phone or ask Alexa/Siri, you mean it — don't let a schedule stomp you 5 minutes later. |
 | `TIMER` (your countdown) | Bypasses the hold — you set it deliberately. |
 | `SAFETY` (auto‑off) | Bypasses the hold — protective, always allowed. |
-| `AUTOMATION` (schedule) | Lowest priority; blocked by an active hold. |
+| `AUTOMATION` (schedule) | Lowest priority; blocked by an active hold — **except pure power‑OFF commands, which always pass**. |
 | `BOOT` | State restore on power‑up (if `restoreOnBoot`). |
 | `SYSTEM` | Non‑command log entries (NTP sync, boot). |
+
+The hold is deliberately **asymmetric**: it stops automations from *turning the
+AC on or changing settings* under you, but an automated *turn‑off* (schedule,
+program end time) is never blocked — tweaking the temperature at 7 am should
+not cancel the 8 am auto‑off and leave the AC running all day.
 
 You can end a hold early from the UI (or `POST /api/override/clear`).
 
@@ -544,10 +552,10 @@ WebSocket, mapping:
 
 | AC feature | Sinric capability |
 |------------|-------------------|
-| Power | On/Off |
+| Power | On/Off (also accepts Google's ON/OFF "modes") |
 | Temperature | Target temperature |
-| Mode | Thermostat mode (COOL / HEAT / AUTO) |
-| Fan | Range value 1–3 (low/med/high) |
+| Mode | Thermostat mode (COOL / HEAT / AUTO / FAN‑only; DRY accepted inbound) — **mode‑only**: a mode command never powers the AC on |
+| Fan | Range value 1–3 (low/med/high) — Alexa only; add the optional `SINRIC_FAN_DEVICE_ID` Fan device to get a Low/Med/High control in Google Home too |
 
 Traffic is **bidirectional**:
 
@@ -562,6 +570,49 @@ Traffic is **bidirectional**:
 Leaving the Sinric keys empty in `secrets.h` disables the whole module — no
 account required.
 
+**Stale‑replay protection:** the Sinric cloud tends to deliver queued/retained
+commands immediately after every (re)connect — observed in the wild as the AC
+"turning itself on" minutes after a manual change. On connect the bridge now
+pushes the device's real state to the cloud first, and any inbound command
+within a 5‑second grace window is answered with the current state instead of
+being applied (logged as `ignored stale Sinric … (reconnect replay)`).
+
+---
+
+## Apple HomeKit
+
+`HomeKitManager` (built on [HomeSpan](https://github.com/HomeSpan/HomeSpan))
+makes the device a **native HomeKit bridge** — no cloud, no hub, everything on
+your LAN. It follows exactly the same pattern as the Sinric bridge:
+characteristic writes become `AcCommand`s routed through
+`AcController::apply()` with source `HOMEKIT`; every local change is mirrored
+back through the change callback.
+
+**In the Home app you get:**
+
+| Tile | Service | Controls |
+|------|---------|----------|
+| AC | HeaterCooler | Power, Cool/Heat/Auto, target temperature (16–30°), fan speed (0 = auto, then low/med/high), vertical swing |
+| Turbo / Quiet / Purify | Switch | The matching remote feature toggles |
+
+Notes:
+
+- **Pairing:** open the Home app → *Add Accessory* → *More options…* → pick
+  **AC Controller** → enter the setup code (`466‑37‑726` by default, or your
+  `HOMEKIT_PAIRING_CODE` from `secrets.h`). Pairing is optional — unpaired,
+  the accessory just advertises and does nothing.
+- **Current temperature** shows the *outdoor* temperature from the weather
+  API (there is no room sensor); until the first weather fetch it mirrors the
+  setpoint.
+- DRY and FAN‑only modes have no HomeKit representation — they appear as
+  *Auto* in the Home app and remain fully controllable from the web UI.
+- The HAP server runs on port **1201**; the dashboard keeps port 80.
+- HomeSpan also **owns Wi‑Fi and mDNS** (credentials injected from
+  `secrets.h`, hostname kept as `ac-controller`), replacing the old
+  `WiFiManager` so two reconnect loops don't fight over the radio.
+- Factory‑reset HomeKit pairing data by typing `X` in the serial monitor
+  (HomeSpan CLI) if you ever need to re‑pair from scratch.
+
 ---
 
 ## REST API reference
@@ -573,7 +624,8 @@ All bodies are JSON. An `action` object is a **partial** AC state: any of
 
 | Endpoint | Method | Body |
 |----------|--------|------|
-| `/api/status` | GET | — → full state + time + hold + program + next schedule |
+| `/api/status` | GET | — → full state (incl. feature toggles) + time + hold + program + next schedule |
+| `/api/set` | POST | any partial state, e.g. `{"power":true,"temp":24,"swing":true,"turbo":false}` — accepts `power/temp/mode/fan` plus `swing/turbo/quiet/econo/clean/ion/display/beep` |
 | `/api/power` | POST | `{"on": true}` |
 | `/api/temp` | POST | `{"value": 16-30}` |
 | `/api/mode` | POST | `{"mode": "cool\|dry\|fan\|auto\|heat"}` |

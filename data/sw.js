@@ -7,12 +7,12 @@
  *
  * Bump CACHE when the shell changes to evict the old copy on next launch.
  */
-const CACHE = "ac-control-v3";
+const CACHE = "ac-control-v4";
 const SHELL = [
   "./",
   "./index.html",
-  "./style.css?v=3",
-  "./script.js?v=3",
+  "./style.css?v=4",
+  "./script.js?v=4",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

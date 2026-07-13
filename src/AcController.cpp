@@ -45,6 +45,11 @@ void AcController::begin() {
     if (ok) state_.fan = f;
     uint8_t t = doc["temp"] | 24;
     state_.temp = constrain(t, kAcMinTemp, kAcMaxTemp);
+    bool* fields[AcCommand::kFeatureCount];
+    featureFieldsOf(state_, fields);
+    for (size_t i = 0; i < AcCommand::kFeatureCount; i++) {
+      if (doc[kFeatureKeys[i]].is<bool>()) *fields[i] = doc[kFeatureKeys[i]].as<bool>();
+    }
   }
 
   if (settings_.restoreOnBoot && state_.power) {
@@ -60,7 +65,12 @@ bool AcController::apply(const AcCommand& cmd, CmdSource source, const char* rea
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    if (source == CmdSource::AUTOMATION && time(nullptr) < overrideUntil_) {
+    // Manual hold is asymmetric: automations may always turn the AC OFF
+    // (auto-off, program end times, safety never get blocked), but anything
+    // else — turning on, changing settings — waits for the hold to expire.
+    bool turnsOff = cmd.hasPower && !cmd.power;
+    if (source == CmdSource::AUTOMATION && !turnsOff &&
+        time(nullptr) < overrideUntil_) {
       // Log outside the lock is nicer, but add() has its own mutex and never
       // calls back into us, so this is deadlock-free.
       log_.add(CmdSource::AUTOMATION, "blocked by manual hold: %s%s%s",
@@ -74,6 +84,15 @@ bool AcController::apply(const AcCommand& cmd, CmdSource source, const char* rea
     if (cmd.hasMode) next.mode = cmd.mode;
     if (cmd.hasTemp) next.temp = constrain(cmd.temp, kAcMinTemp, kAcMaxTemp);
     if (cmd.hasFan) next.fan = cmd.fan;
+    bool* fields[AcCommand::kFeatureCount];
+    featureFieldsOf(next, fields);
+    for (size_t i = 0; i < AcCommand::kFeatureCount; i++) {
+      if (cmd.hasFeature[i]) *fields[i] = cmd.feature[i];
+    }
+    // The AC treats these as mutually exclusive; mirror that so our state
+    // never disagrees with the unit about which one won.
+    if (cmd.hasFeature[FEAT_TURBO] && cmd.feature[FEAT_TURBO]) next.quiet = false;
+    if (cmd.hasFeature[FEAT_QUIET] && cmd.feature[FEAT_QUIET]) next.turbo = false;
 
     // No-op commands from the cloud/automation are dropped entirely: Sinric
     // replays retained state on every connect — transmitting those would
@@ -81,12 +100,17 @@ bool AcController::apply(const AcCommand& cmd, CmdSource source, const char* rea
     // no-op still transmits: re-pressing the same setting is how users nudge
     // an AC that missed a frame.
     bool changed = next.power != state_.power || next.mode != state_.mode ||
-                   next.temp != state_.temp || next.fan != state_.fan;
+                   next.temp != state_.temp || next.fan != state_.fan ||
+                   next.swing != state_.swing || next.turbo != state_.turbo ||
+                   next.quiet != state_.quiet || next.econo != state_.econo ||
+                   next.clean != state_.clean || next.ion != state_.ion ||
+                   next.display != state_.display || next.beep != state_.beep;
     if (!changed && source != CmdSource::MANUAL) return true;
 
     state_ = next;
 
-    if (source == CmdSource::MANUAL || source == CmdSource::SINRIC) {
+    if (source == CmdSource::MANUAL || source == CmdSource::SINRIC ||
+        source == CmdSource::HOMEKIT) {
       overrideUntil_ = time(nullptr) + static_cast<time_t>(settings_.holdMinutes) * 60;
     }
 
@@ -129,6 +153,14 @@ void AcController::transmit(const ACState& s) {
   ac_.setMode(irModeFromAcMode(s.mode));
   ac_.setTemp(s.temp);
   ac_.setFan(irFanFromFanSpeed(s.fan));
+  ac_.setSwing(s.swing);
+  ac_.setPowerful(s.turbo);
+  ac_.setQuiet(s.quiet);
+  ac_.setEcono(s.econo);
+  ac_.setClean(s.clean);
+  ac_.setIon(s.ion);
+  ac_.setDisplay(s.display);
+  ac_.setBeep(s.beep);
   ac_.send();
 
   Serial.printf("IR sent: power=%s mode=%s temp=%u fan=%s\n",
@@ -143,6 +175,11 @@ void AcController::persistState() {
   doc["mode"] = acModeToString(s.mode);
   doc["temp"] = s.temp;
   doc["fan"] = fanSpeedToString(s.fan);
+  bool* fields[AcCommand::kFeatureCount];
+  featureFieldsOf(s, fields);
+  for (size_t i = 0; i < AcCommand::kFeatureCount; i++) {
+    doc[kFeatureKeys[i]] = *fields[i];
+  }
   ConfigStore::save(kStatePath, doc);
 }
 

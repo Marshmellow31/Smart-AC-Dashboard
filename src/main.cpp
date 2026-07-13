@@ -2,6 +2,7 @@
 #include <ESPmDNS.h>
 #include <LittleFS.h>
 #include <NetBIOS.h>
+#include <WiFi.h>
 #include <ir_Samsung.h>
 
 #include "AcController.h"
@@ -9,19 +10,17 @@
 #include "AutomationEngine.h"
 #include "ConfigStore.h"
 #include "EventLog.h"
+#include "HomeKitManager.h"
 #include "SinricManager.h"
 #include "StatsManager.h"
 #include "TimeManager.h"
 #include "WeatherManager.h"
 #include "WebServerManager.h"
-#include "WiFiManager.h"
 
 const uint16_t IR_SEND_PIN = 4;
-const char* kMdnsHostname = "ac-controller";
 const char* kSettingsPath = "/cfg/settings.json";
 
 IRSamsungAc ac(IR_SEND_PIN);
-WiFiManager wifiManager;
 EventLog eventLog;
 AppSettings settings;
 TimeManager timeManager(eventLog);
@@ -29,23 +28,25 @@ AcController acController(ac, eventLog, settings);
 AutomationEngine automation(acController, timeManager, eventLog, settings);
 StatsManager stats(acController, timeManager, eventLog, settings);
 SinricManager sinric(acController, eventLog);
+HomeKitManager homekit(acController, eventLog);
 WeatherManager weather(eventLog);
 WebServerManager webServer(acController, automation, stats, settings, timeManager, eventLog);
 
-// Two name services so the UI is reachable by name from any client:
-//  - mDNS  → http://ac-controller.local/  (Android, iOS, macOS, Linux)
-//  - NetBIOS → http://ac-controller/      (Windows, where mDNS is unreliable)
-// The raw IP printed on the serial console always works as a fallback.
-void startNameServices() {
-  MDNS.end();
-  if (MDNS.begin(kMdnsHostname)) {
-    MDNS.addService("http", "tcp", 80);
-    Serial.printf("mDNS responder started: http://%s.local/\n", kMdnsHostname);
-  } else {
-    Serial.println("mDNS responder failed to start.");
-  }
-  NBNS.begin(kMdnsHostname);
-  Serial.printf("NetBIOS responder started: http://%s/\n", kMdnsHostname);
+// Wi-Fi and mDNS are owned by HomeSpan (HomeKitManager) — it connects with
+// the credentials from secrets.h, retries with backoff forever, and starts
+// the mDNS responder as "ac-controller". This hook runs once, right after
+// that first connect, to layer on everything else that needs the network:
+//  - the HTTP service record (http://ac-controller.local/) on HomeSpan's
+//    mDNS instance, plus NetBIOS for Windows (http://ac-controller/)
+//  - NTP sync
+//  - the Sinric Pro cloud bridge
+void onNetworkUp() {
+  MDNS.addService("http", "tcp", 80);
+  NBNS.begin("ac-controller");
+  Serial.println("Name services ready: http://ac-controller.local/ and http://ac-controller/");
+
+  timeManager.onWifiConnected();
+  sinric.begin();
 }
 
 // Mount LittleFS, self-healing a bad volume instead of crashing on it.
@@ -96,41 +97,25 @@ void setup() {
   weather.setLocation(settings.weatherLat, settings.weatherLon);
   stats.begin();
 
-  // External (manual/cloud/timer/safety) commands cancel a running program;
-  // every change is mirrored to Sinric so clouds stay in sync.
+  // External (manual/cloud/HomeKit/timer/safety) commands cancel a running
+  // program; every change is mirrored to both cloud bridges so the Alexa/
+  // Google and Apple Home apps stay in sync (each skips its own echo).
   acController.addChangeCallback([](const ACState& s, CmdSource source) {
     automation.onExternalCommand(source);
     sinric.pushState(s, source);
+    homekit.pushState(s, source);
   });
 
-  wifiManager.begin();
+  homekit.setWeatherManager(&weather);
+  homekit.onWifiReady(onNetworkUp);
+  homekit.begin();  // brings up Wi-Fi, mDNS and the HomeKit accessory
   webServer.begin();
 
   eventLog.add(CmdSource::SYSTEM, "boot complete");
 }
 
 void loop() {
-  wifiManager.loop();
-
-  static bool wasConnected = false;
-  static bool nameServicesStarted = false;
-  bool nowConnected = wifiManager.isConnected();
-  if (nowConnected && !wasConnected) {
-    // mDNS/NetBIOS track the current IP automatically once registered, so
-    // this only needs to run on the very first connect. Re-running it on
-    // every reconnect (e.g. a router that flaps for a while after a power
-    // outage) repeatedly hits ESP32 mDNS's known end()/begin() leak and can
-    // starve heap for the web server while Sinric's lighter-weight socket
-    // keeps working — exactly the "cloud control works, local UI doesn't"
-    // failure mode.
-    if (!nameServicesStarted) {
-      startNameServices();
-      nameServicesStarted = true;
-    }
-    timeManager.onWifiConnected();
-    sinric.begin();
-  }
-  wasConnected = nowConnected;
+  homekit.loop();  // HomeSpan poll: Wi-Fi management + HAP requests
 
   timeManager.loop();
   acController.loop();
@@ -142,7 +127,7 @@ void loop() {
   // Cheap enough to re-set every tick, so a settings-page location edit
   // takes effect without extra plumbing.
   weather.setLocation(settings.weatherLat, settings.weatherLon);
-  weather.loop(nowConnected);
+  weather.loop(WiFi.status() == WL_CONNECTED);
 
   delay(10);
 }

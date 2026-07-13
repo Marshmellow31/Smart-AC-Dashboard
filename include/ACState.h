@@ -17,6 +17,17 @@ struct ACState {
   AcMode mode = AcMode::COOL;
   uint8_t temp = 24;
   FanSpeed fan = FanSpeed::FAN_AUTO;
+
+  // Feature toggles from the physical remote (Samsung AR series). All are
+  // carried in the same full-state IR frame as power/mode/temp/fan.
+  bool swing = false;    // vertical air swing
+  bool turbo = false;    // "Turbo" (protocol: powerful) — mutually exclusive with quiet
+  bool quiet = false;    // "Quiet" — mutually exclusive with turbo
+  bool econo = false;    // "Smart Saver"
+  bool clean = false;    // "Auto Clean" (dry the coil after power-off)
+  bool ion = false;      // "Purify" / Virus Doctor
+  bool display = true;   // panel display light ("Display Off" button)
+  bool beep = true;      // acknowledge beep ("Beep Off" button)
 };
 
 constexpr uint8_t kAcMinTemp = 16;

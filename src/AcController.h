@@ -20,9 +20,11 @@ class EventLog;
 // from the async TCP task corrupts the waveform. apply() only mutates state
 // and raises sendPending_.
 //
-// Override policy ("manual wins"): MANUAL and SINRIC commands start a hold of
-// settings.holdMinutes during which AUTOMATION commands are rejected.
-// TIMER (user-set countdown) and SAFETY (auto-off) bypass the hold.
+// Override policy ("manual wins", asymmetric): MANUAL and SINRIC commands
+// start a hold of settings.holdMinutes during which AUTOMATION commands are
+// rejected — except pure power-OFF commands, which always pass (an auto-off
+// should never be blocked by someone having tweaked the temperature).
+// TIMER (user-set countdown) and SAFETY (auto-off) bypass the hold entirely.
 class AcController {
  public:
   using ChangeCallback = std::function<void(const ACState&, CmdSource)>;
